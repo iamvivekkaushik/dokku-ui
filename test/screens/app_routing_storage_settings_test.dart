@@ -770,7 +770,8 @@ void main() {
     testAtAllSizes('destroying needs the app name typed, then returns to the apps list', (tester, size) async {
       final ssh = await pumpScreen(tester, settings(), size: size);
       await tapOn(tester, find.text('Destroy app'));
-      expect(find.text('Destroy demo-app?'), findsOneWidget);
+      expect(find.text('Destroy demo-app'), findsOneWidget);
+      expect(find.text('This cannot be undone.'), findsOneWidget);
       final confirm = find.widgetWithText(Btn, 'Destroy app').last;
       expect(tester.widget<Btn>(confirm).onPressed, isNull);
       await tapOn(tester, find.text('Cancel'));

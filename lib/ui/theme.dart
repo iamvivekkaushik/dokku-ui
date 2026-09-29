@@ -89,7 +89,11 @@ abstract final class Bp {
   /// Below this two-column pages stack.
   static const twoCol = 820.0;
 
+  /// From here up the top bar has room for addresses, labels and a search field.
+  static const wideHeader = 1180.0;
+
   static bool isCompact(BuildContext context) => MediaQuery.sizeOf(context).width < compact;
+  static bool isWideHeader(BuildContext context) => MediaQuery.sizeOf(context).width >= wideHeader;
 }
 
 ThemeData buildTheme() {

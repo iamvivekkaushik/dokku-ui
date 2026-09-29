@@ -9,6 +9,7 @@ import '../../../state/queries.dart';
 import '../../../state/router.dart';
 import '../../actions.dart';
 import '../../shell/action_dialogs.dart' show appNamePattern, showCreateApp;
+import '../../shell/destroy_dialog.dart';
 import '../../widgets/kit.dart';
 import 'shared.dart';
 
@@ -324,19 +325,7 @@ class _DangerCardState extends ConsumerState<_DangerCard> with Busy {
     final app = widget.app;
     // The tab is gone once the app is, so look this up first.
     final router = ref.read(routerProvider.notifier);
-    final r = await busy(
-      'destroy',
-      () => runDokku(context, ref, widget.host, ['--force', 'apps:destroy', app],
-          ask: Confirm(
-            title: 'Destroy $app?',
-            body: 'Containers, images, config, domains and the variables set by linked services are removed. '
-                'Storage directories on the host are kept.',
-            label: 'Destroy app',
-            danger: true,
-            typeToConfirm: app,
-          ),
-          timeout: const Duration(minutes: 10)),
-    );
+    final r = await busy('destroy', () => destroyApp(context, ref, widget.host, app));
     if (r?.ok == true) router.section(const AppsRoute());
   }
 
@@ -360,6 +349,6 @@ class _DangerCardState extends ConsumerState<_DangerCard> with Busy {
             Btn('Destroy app', variant: BtnVariant.danger, loading: isBusy('destroy'), onPressed: _destroy),
           ]),
         ),
-        CmdFooter(footerCommand(['--force', 'apps:destroy', widget.app])),
+        CmdFooter(footerCommand(destroyAppArgs(widget.app))),
       ]);
 }

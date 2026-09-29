@@ -4,7 +4,21 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../theme.dart';
 
-enum BtnVariant { primary, outline, secondary, ghost, danger, dangerGhost }
+enum BtnVariant {
+  primary,
+  outline,
+  secondary,
+  ghost,
+
+  /// Tinted red: an action to think about, such as Stop.
+  danger,
+
+  /// Quiet until hovered, then red: a destructive action among ordinary ones.
+  dangerGhost,
+
+  /// Solid red: the final step of something that cannot be undone.
+  destructive,
+}
 
 enum BtnSize { xs, sm, md }
 
@@ -35,6 +49,7 @@ class Btn extends StatelessWidget {
     this.tooltip,
     this.mono = false,
     this.selected = false,
+    this.square = false,
   });
 
   final String label;
@@ -48,6 +63,9 @@ class Btn extends StatelessWidget {
 
   /// Draws the button in its "on" state, for toggles.
   final bool selected;
+
+  /// As wide as it is tall, for a button that is only an icon.
+  final bool square;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +85,8 @@ class Btn extends StatelessWidget {
         BtnVariant.secondary => selected || hover ? C.elev2 : C.elev,
         BtnVariant.ghost => hover ? C.w(.08) : Colors.transparent,
         BtnVariant.danger => C.bad.withValues(alpha: hover ? .18 : .10),
-        BtnVariant.dangerGhost => C.elev,
+        BtnVariant.dangerGhost => hover && enabled ? C.bad.withValues(alpha: .08) : C.elev,
+        BtnVariant.destructive => !enabled ? C.bad.withValues(alpha: .10) : (hover ? C.bad.withValues(alpha: .9) : C.bad),
       };
     }
 
@@ -79,8 +98,9 @@ class Btn extends StatelessWidget {
         BtnVariant.ghost => hover ? C.fg : C.muted,
         BtnVariant.danger => C.bad,
         BtnVariant.dangerGhost => hover ? C.bad : C.muted,
+        BtnVariant.destructive => enabled ? Colors.white : C.bad.withValues(alpha: .6),
       };
-      return enabled || variant == BtnVariant.primary ? c : c.withValues(alpha: .45);
+      return enabled || variant == BtnVariant.primary || variant == BtnVariant.destructive ? c : c.withValues(alpha: .45);
     }
 
     BorderSide side(Set<WidgetState> s) {
@@ -88,13 +108,14 @@ class Btn extends StatelessWidget {
       return switch (variant) {
         BtnVariant.primary || BtnVariant.ghost => BorderSide.none,
         BtnVariant.danger => BorderSide(color: C.bad.withValues(alpha: .35)),
-        BtnVariant.dangerGhost => BorderSide(color: hover ? C.bad.withValues(alpha: .4) : C.lineStrong),
+        BtnVariant.destructive => BorderSide(color: C.bad.withValues(alpha: .4)),
+        BtnVariant.dangerGhost => BorderSide(color: hover && enabled ? C.bad.withValues(alpha: .4) : C.lineStrong),
         _ => BorderSide(color: C.lineStrong),
       };
     }
 
     final weight = switch (variant) {
-      BtnVariant.primary => FontWeight.w600,
+      BtnVariant.primary || BtnVariant.destructive => FontWeight.w600,
       BtnVariant.outline || BtnVariant.danger => FontWeight.w500,
       _ => FontWeight.w400,
     };
@@ -103,7 +124,10 @@ class Btn extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        if (loading) ...[Spinner(size: 11, color: variant == BtnVariant.primary ? C.muted : C.fg), const SizedBox(width: 7)],
+        if (loading) ...[
+          Spinner(size: 11, color: variant == BtnVariant.primary ? C.muted : C.fg),
+          if (label.isNotEmpty) const SizedBox(width: 7),
+        ],
         if (icon != null && !loading) ...[Icon(icon, size: font + 1), if (label.isNotEmpty) const SizedBox(width: 7)],
         if (label.isNotEmpty) Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false)),
       ],
@@ -112,10 +136,10 @@ class Btn extends StatelessWidget {
     final button = TextButton(
       onPressed: enabled ? onPressed : null,
       style: ButtonStyle(
-        minimumSize: WidgetStatePropertyAll(Size(0, height)),
-        maximumSize: WidgetStatePropertyAll(Size(double.infinity, height)),
-        fixedSize: WidgetStatePropertyAll(Size.fromHeight(height)),
-        padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: hPad)),
+        minimumSize: WidgetStatePropertyAll(Size(square ? height : 0, height)),
+        maximumSize: WidgetStatePropertyAll(Size(square ? height : double.infinity, height)),
+        fixedSize: WidgetStatePropertyAll(square ? Size.square(height) : Size.fromHeight(height)),
+        padding: WidgetStatePropertyAll(square ? EdgeInsets.zero : EdgeInsets.symmetric(horizontal: hPad)),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         visualDensity: VisualDensity.compact,
         backgroundColor: WidgetStateProperty.resolveWith(bg),

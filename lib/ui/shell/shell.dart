@@ -17,6 +17,7 @@ import '../screens/monitoring.dart';
 import '../screens/server.dart';
 import '../widgets/kit.dart';
 import 'action_dialogs.dart';
+import 'app_switcher.dart';
 import 'connect_dialog.dart';
 import 'error_dialog.dart';
 import 'job_dock.dart';
@@ -65,11 +66,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final router = ref.read(routerProvider.notifier);
     final tab = n.tab;
     if (tab == null) return router.section(_routeFor(n.section));
-    final host = ref.read(currentHostProvider);
-    final current = ref.read(routeProvider);
-    final names = host == null ? const <String>[] : ref.read(appsProvider(host.id)).value?.names ?? const <String>[];
-    final lastApp = ref.read(prefsProvider).lastApp;
-    final app = current is AppDetailRoute ? current.app : (names.contains(lastApp) ? lastApp : names.firstOrNull);
+    final app = ref.read(currentAppProvider);
     app == null ? router.section(const AppsRoute()) : router.go(AppDetailRoute(app, tab));
   }
 
@@ -484,9 +481,8 @@ class _TopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final width = MediaQuery.sizeOf(context).width;
     final compact = Bp.isCompact(context);
-    final labels = width >= 1100;
+    final labels = Bp.isWideHeader(context);
     final h = host;
     final failures = h == null ? false : (ref.watch(activityProvider(h.id)).value ?? const []).take(5).any((e) => !e.ok);
 
@@ -495,18 +491,15 @@ class _TopBar extends ConsumerWidget {
       padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 16),
       decoration: BoxDecoration(color: C.bg, border: Border(bottom: BorderSide(color: C.line))),
       child: Row(children: [
-        if (compact) ...[const _Logo(size: 28), const SizedBox(width: 10)],
-        Flexible(flex: compact ? 1 : 0, child: _HostSwitcher(compact: compact)),
-        if (!compact) ...[
+        if (compact) ...[
+          const _Logo(size: 28),
           const SizedBox(width: 10),
-          Flexible(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 260),
-              child: _SearchBox(onTap: onSearch),
-            ),
-          ),
-        ],
-        if (!compact) const Spacer() else const SizedBox(width: 8),
+          // Takes the room that is left, so the actions sit at the right edge.
+          Expanded(child: Align(alignment: Alignment.centerLeft, child: _HostSwitcher(compact: true, wide: false))),
+          const SizedBox(width: 8),
+        ] else
+          Expanded(child: _Breadcrumb(host: h, wide: labels, onSearch: onSearch)),
+        if (!compact) const SizedBox(width: 10),
         if (compact) IconBtn(LucideIcons.search, tooltip: 'Search', size: 15, onPressed: onSearch),
         if (compact)
           IconBtn(LucideIcons.terminal, tooltip: h?.hasShell ?? false ? 'SSH terminal' : 'Dokku console', size: 15, onPressed: onTerminal)
@@ -531,6 +524,73 @@ class _TopBar extends ConsumerWidget {
       ]),
     );
   }
+}
+
+/// Host, then the app in view, then search: the left side of the top bar.
+///
+/// The host keeps its size, search gives way first and the app name is cut
+/// short last, so that nothing is pushed out of the bar in a narrow window.
+class _Breadcrumb extends StatelessWidget {
+  const _Breadcrumb({required this.host, required this.wide, this.onSearch});
+  final Host? host;
+  final bool wide;
+  final VoidCallback? onSearch;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        const gap = 10.0, slash = 28.0;
+        final hostMax = wide ? 320.0 : 170.0;
+        final searchMin = wide ? 100.0 : 34.0;
+        final appMax = (box.maxWidth - hostMax - slash - gap - searchMin).clamp(96.0, 260.0);
+        final h = host;
+
+        return Row(children: [
+          ConstrainedBox(constraints: BoxConstraints(maxWidth: hostMax), child: _HostSwitcher(compact: false, wide: wide)),
+          if (h != null) ...[
+            SizedBox(
+              width: slash,
+              child: Text('/', textAlign: TextAlign.center, style: T.sans(16, color: const Color(0xFF3A3A40))),
+            ),
+            ConstrainedBox(constraints: BoxConstraints(maxWidth: appMax), child: AppSwitcher(host: h, showRevision: wide)),
+          ],
+          const SizedBox(width: gap),
+          if (wide)
+            Flexible(
+              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: _SearchBox(onTap: onSearch)),
+            )
+          else
+            _SearchButton(onTap: onSearch),
+        ]);
+      });
+}
+
+/// Search as a single button, for when there is no room for the field.
+class _SearchButton extends StatelessWidget {
+  const _SearchButton({this.onTap});
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: 'Search',
+        child: Semantics(
+          button: true,
+          label: 'Search',
+          child: MouseRegion(
+            cursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: Container(
+                width: 34,
+                height: 34,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: C.field, borderRadius: BorderRadius.circular(8), border: Border.all(color: C.line)),
+                child: const Icon(LucideIcons.search, size: 13, color: C.muted),
+              ),
+            ),
+          ),
+        ),
+      );
 }
 
 class _SearchBox extends StatelessWidget {
@@ -565,8 +625,11 @@ class _SearchBox extends StatelessWidget {
 }
 
 class _HostSwitcher extends ConsumerWidget {
-  const _HostSwitcher({required this.compact});
+  const _HostSwitcher({required this.compact, required this.wide});
   final bool compact;
+
+  /// Whether there is room for the address and the round-trip time.
+  final bool wide;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -639,11 +702,9 @@ class _HostSwitcher extends ConsumerWidget {
           PulseDot(color: color, ring: status.state != ConnState.idle),
           const SizedBox(width: 10),
           Flexible(child: Text(host.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.sans(12.5, weight: FontWeight.w600))),
-          if (!compact && MediaQuery.sizeOf(context).width >= 1000) ...[
+          if (wide) ...[
             const SizedBox(width: 10),
-            Text(host.host, style: T.mono(11, color: C.muted)),
-          ],
-          if (!compact) ...[
+            Flexible(child: Text(host.host, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.mono(11, color: C.muted))),
             const SizedBox(width: 10),
             Container(width: 1, height: 14, color: C.lineStrong),
             const SizedBox(width: 10),

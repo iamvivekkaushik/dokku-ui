@@ -8,6 +8,8 @@ import '../../state/queries.dart';
 import '../../state/router.dart';
 import '../actions.dart';
 import '../shell/action_dialogs.dart';
+import '../shell/app_switcher.dart' show processSummary;
+import '../shell/destroy_dialog.dart';
 import '../widgets/kit.dart';
 import 'dashboard.dart' show healthTone;
 
@@ -78,7 +80,22 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
           '',
           margin: EdgeInsets.zero,
           child: Column(children: [
-            Text(q.isEmpty ? 'No apps on this host yet.' : 'No apps match "$q".', textAlign: TextAlign.center, style: T.small),
+            Text.rich(
+              // An empty host and a filter that matches nothing need different next steps.
+              TextSpan(children: [
+                if (q.isEmpty) ...[
+                  TextSpan(text: 'No apps on ${host.name} yet. Create one, then '),
+                  TextSpan(text: 'git push dokku main', style: T.mono(11.5, color: C.muted)),
+                  const TextSpan(text: '.'),
+                ] else ...[
+                  TextSpan(text: 'No apps match “$q”. '),
+                  TextSpan(text: 'dokku apps:create <name>', style: T.mono(11.5, color: C.muted)),
+                  const TextSpan(text: ' to add one.'),
+                ],
+              ]),
+              textAlign: TextAlign.center,
+              style: T.small,
+            ),
             const SizedBox(height: 10),
             Btn('Create app', icon: LucideIcons.plus, onPressed: () => showCreateApp(context, host)),
           ]),
@@ -188,6 +205,8 @@ class _AppCardState extends ConsumerState<_AppCard> with Busy {
                 enabled: !undeployed, ask: Confirm(title: 'Stop ${a.name}?', body: stopConfirmBody, label: 'Stop app', danger: true)),
           const SizedBox(width: 6),
           Expanded(child: Btn('Logs', onPressed: () => router.go(AppDetailRoute(a.name, AppTab.logs)))),
+          const SizedBox(width: 6),
+          _DestroyBtn(host, a.name),
         ]),
       ]),
     );
@@ -201,7 +220,14 @@ class _AppTable extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Panel.column(children: [
-        THead([th('app', flex: 12), th('git remote', flex: 16), th('processes', flex: 14), th('domains', flex: 12), th('status', width: 100, align: TextAlign.right)]),
+        THead([
+          th('app', flex: 12),
+          th('git remote', flex: 16),
+          th('processes', flex: 14),
+          th('domains', flex: 12),
+          th('status', width: 100, align: TextAlign.right),
+          const SizedBox(width: 40),
+        ]),
         for (final a in apps)
           PanelRow(
             onTap: () => ref.read(routerProvider.notifier).go(AppDetailRoute(a.name)),
@@ -214,7 +240,7 @@ class _AppTable extends ConsumerWidget {
               Expanded(
                 flex: 14,
                 child: Text(
-                  a.procs.isEmpty ? '—' : a.procs.map((p) => '${p.name}:${p.running ? 'up' : 'down'}').join(' '),
+                  a.procs.isEmpty ? '—' : processSummary(a),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: T.mono(11, color: C.soft),
@@ -226,7 +252,31 @@ class _AppTable extends ConsumerWidget {
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: T.sans(12, color: C.muted)),
               ),
               SizedBox(width: 100, child: Align(alignment: Alignment.centerRight, child: Dot(a.health.name, tone: healthTone(a.health)))),
+              SizedBox(width: 40, child: Align(alignment: Alignment.centerRight, child: _DestroyBtn(host, a.name))),
             ]),
           ),
       ]);
+}
+
+/// Opens the destroy dialog for one app of the list.
+class _DestroyBtn extends ConsumerStatefulWidget {
+  const _DestroyBtn(this.host, this.app);
+  final Host host;
+  final String app;
+
+  @override
+  ConsumerState<_DestroyBtn> createState() => _DestroyBtnState();
+}
+
+class _DestroyBtnState extends ConsumerState<_DestroyBtn> with Busy {
+  @override
+  Widget build(BuildContext context) => Btn(
+        '',
+        icon: LucideIcons.trash2,
+        variant: BtnVariant.dangerGhost,
+        square: true,
+        tooltip: 'Destroy app',
+        loading: isBusy('destroy'),
+        onPressed: () => busy('destroy', () => destroyApp(context, ref, widget.host, widget.app)),
+      );
 }

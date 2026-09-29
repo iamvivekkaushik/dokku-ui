@@ -369,6 +369,16 @@ Report parseLetsencrypt(String text) => {
         if (_letsencryptRow.firstMatch(l) case final m?) m[1]!.toLowerCase(): m[2]!,
     };
 
+/// Config variables Dokku sets itself, as opposed to those the user set.
+const dokkuConfigKeys = {
+  'DOKKU_APP_TYPE',
+  'DOKKU_PROXY_PORT',
+  'DOKKU_PROXY_SSL_PORT',
+  'GIT_REV',
+  'DOKKU_APP_RESTORE',
+  'DOKKU_DOCKERFILE_START_CMD',
+};
+
 final _envPair = RegExp(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$');
 
 List<MapEntry<String, String>> parseEnvFile(String text) {

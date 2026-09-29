@@ -6,6 +6,7 @@ import '../../data/models.dart';
 import '../../state/queries.dart';
 import '../../state/router.dart';
 import '../actions.dart';
+import '../shell/app_switcher.dart';
 import '../widgets/kit.dart';
 import 'app/build.dart';
 import 'app/deploys.dart';
@@ -38,7 +39,11 @@ class _AppDetailScreenState extends ConsumerState<AppDetailScreen> with Busy {
     final crumb = Row(children: [
       LinkText('Apps', onTap: () => router.section(const AppsRoute()), style: T.sans(12)),
       Text('  /  ', style: T.sans(12, color: C.muted)),
-      Flexible(child: Text(app, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.sans(12, weight: FontWeight.w500))),
+      // A phone has no room for the app switcher in the top bar, so it lives here.
+      if (Bp.isCompact(context))
+        Flexible(child: AppSwitcher(host: host, style: AppSwitcherStyle.crumb))
+      else
+        Flexible(child: Text(app, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.sans(12, weight: FontWeight.w500))),
     ]);
 
     // While the list is being read again it may not have an app that was just created or renamed.

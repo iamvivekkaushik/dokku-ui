@@ -13,14 +13,7 @@ import '../../actions.dart';
 import '../../widgets/kit.dart';
 
 /// Variables Dokku sets itself. Hidden unless asked for, and left alone by "Replace all".
-const _systemKeys = {
-  'DOKKU_APP_TYPE',
-  'DOKKU_PROXY_PORT',
-  'DOKKU_PROXY_SSL_PORT',
-  'GIT_REV',
-  'DOKKU_APP_RESTORE',
-  'DOKKU_DOCKERFILE_START_CMD',
-};
+const _systemKeys = dokkuConfigKeys;
 
 const _masked = '••••••••••••••••';
 const _keyWidth = 240.0;

@@ -17,6 +17,7 @@ class AppDialog extends StatelessWidget {
     this.width = 480,
     this.header,
     this.dismissible = true,
+    this.danger = false,
     this.bodyPadding = const EdgeInsets.all(20),
     this.gap = 14,
   });
@@ -33,6 +34,9 @@ class AppDialog extends StatelessWidget {
   /// Replaces the default header.
   final Widget? header;
   final bool dismissible;
+
+  /// Outlines the card in red, for something that cannot be undone.
+  final bool danger;
   final EdgeInsets bodyPadding;
   final double gap;
 
@@ -50,7 +54,7 @@ class AppDialog extends StatelessWidget {
           decoration: BoxDecoration(
             color: C.card,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: C.lineStrong),
+            border: Border.all(color: danger ? C.bad.withValues(alpha: .3) : C.lineStrong),
             boxShadow: const [BoxShadow(color: Color(0x80000000), blurRadius: 60, offset: Offset(0, 20))],
           ),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [

@@ -12,6 +12,7 @@ import '../core/parse.dart';
 import '../data/models.dart';
 import '../data/platform.dart';
 import 'core.dart';
+import 'router.dart';
 
 class DokkuError implements Exception {
   DokkuError(this.result);
@@ -156,6 +157,18 @@ class AppsData {
   List<String> get names => [for (final a in apps) a.name];
   AppSummary? find(String name) => apps.where((a) => a.name == name).firstOrNull;
 }
+
+/// The app that the app switcher and the sidebar shortcuts refer to: the one
+/// on screen, otherwise the last one visited, otherwise the first.
+final currentAppProvider = Provider.autoDispose<String?>((ref) {
+  final host = ref.watch(currentHostProvider);
+  if (host == null) return null;
+  final route = ref.watch(routeProvider);
+  if (route is AppDetailRoute) return route.app;
+  final names = ref.watch(appsProvider(host.id)).value?.names ?? const <String>[];
+  final last = ref.watch(prefsProvider.select((p) => p.lastApp));
+  return names.contains(last) ? last : names.firstOrNull;
+});
 
 final _appName = RegExp(r'^[a-z0-9][a-z0-9-]*$');
 final _noApps = RegExp(r"haven't deployed|no apps", caseSensitive: false);
