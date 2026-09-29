@@ -1,0 +1,68 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --font-sans: Geist, "Helvetica Neue", Helvetica, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-bg: #0a0a0b;
+  --color-card: #111113;
+  --color-elev: #16161a;
+  --color-elev2: #1c1c21;
+  --color-field: #0e0e10;
+  --color-term: #0c0c0e;
+  --color-fg: #ededef;
+  --color-soft: #c9c9cc;
+  --color-muted: #8a8a90;
+  --color-dim: #5f5f66;
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-info: #3b82f6;
+  --color-bad: #ef4444;
+  --color-mute: #9ca3af;
+  --color-violet: #a78bfa;
+
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  --animate-ring: ring 1.6s ease-out infinite;
+  --animate-rise: rise .38s cubic-bezier(.22,1,.36,1);
+  --animate-pop: pop .2s cubic-bezier(.22,1,.36,1);
+  --animate-skel: skel 1.4s ease-in-out infinite;
+
+  @keyframes pulse-dot { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  @keyframes ring { 0% { transform: scale(1); opacity: .6 } 100% { transform: scale(2.4); opacity: 0 } }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+  @keyframes pop { from { opacity: 0; transform: scale(.97) } to { opacity: 1; transform: none } }
+  @keyframes skel { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+}
+
+@layer base {
+  html, body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    color-scheme: dark;
+  }
+  a { color: var(--color-info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  input::placeholder, textarea::placeholder { color: var(--color-dim); }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: rgba(255,255,255,.28) !important;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.06);
+  }
+  :focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 1px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  select option { background: var(--color-card); }
+}
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.xterm { padding: 10px 12px; height: 100%; }
+.xterm .xterm-viewport { background: transparent !important; }
