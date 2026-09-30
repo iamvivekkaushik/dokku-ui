@@ -260,7 +260,7 @@ version with the date, set the same version in `pubspec.yaml` and in
 `lib/core/version.dart` (a test checks the three agree), commit, and tag:
 
 ```bash
-git tag v1.3.0 && git push origin v1.3.0
+git tag v1.4.0 && git push origin v1.4.0
 ```
 
 ## Testing
