@@ -15,6 +15,7 @@ import 'dart:io';
 import 'package:dokku_console/core/command.dart';
 import 'package:dokku_console/core/parse.dart';
 import 'package:dokku_console/core/tar.dart';
+import 'package:dokku_console/core/templates.dart';
 import 'package:dokku_console/data/models.dart';
 import 'package:dokku_console/data/ssh_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -115,12 +116,18 @@ void main() {
       ['--force', 'apps:destroy', 'e2e-clone'],
       ['--force', 'apps:destroy', 'e2e-renamed'],
       ['--force', 'apps:destroy', 'e2e-shell'],
+      ['--force', 'apps:destroy', 'e2e-store'],
+      ['--force', 'apps:destroy', 'e2e-n8n'],
+      ['--force', 'apps:destroy', 'e2e-rustdesk'],
       ['redis:destroy', 'e2e-cache', '--force'],
       ['network:destroy', '--force', 'e2e-net'],
     ]) {
       await ssh.dokku(_host('dokku'), args, timeout: const Duration(minutes: 5));
     }
     await ssh.dokku(_host('root'), ['ssh-keys:remove', 'e2e-key']);
+    // Storage directories, also the ones a docker-in-docker host daemon made on its side.
+    await ssh.exec(_host('root'), 'rm -rf /var/lib/dokku/data/storage/e2e-store-data /var/lib/dokku/data/storage/e2e-n8n-data /var/lib/dokku/data/storage/e2e-rustdesk-data');
+    await ssh.exec(_host('root'), "docker run --rm -v /var/lib/dokku/data/storage:/s alpine:3.20 sh -c 'rm -rf /s/e2e-store-data /s/e2e-n8n-data /s/e2e-rustdesk-data'");
     ssh.dispose();
     await scratch.delete(recursive: true);
   });
@@ -397,6 +404,111 @@ void main() {
     expect(shell, contains('hi-42'));
     expect(shellExit.code, 0);
   }, skip: skip, timeout: const Timeout(Duration(minutes: 5)));
+
+  /// Runs every step of a Store install the way the app does, without a screen.
+  Future<void> installPlan(InstallPlan plan) async {
+    final h = _host('dokku');
+    for (final step in plan.steps) {
+      final r = await ssh.dokku(h, step.args, timeout: const Duration(minutes: 15));
+      if (!r.ok && step.quiet) continue;
+      expect(r.ok, isTrue, reason: '${displayCommand(step.args)} exited ${r.code}\n${stripAnsi(r.output)}');
+      if (step is LinkStep && step.service.env.isNotEmpty) {
+        final url = await ssh.dokku(h, ['config:get', plan.app, step.service.from]);
+        final set = await ssh.dokku(h, configSetArgs(plan.app, step.derive(url.stdout)));
+        expect(set.ok, isTrue, reason: stripAnsi(set.output));
+      }
+    }
+  }
+
+  /// In the throwaway container, app containers run on the host's daemon, which
+  /// mounts storage from its own filesystem, root-owned, where Dokku's chown never
+  /// happened. Gives that directory the owner the image runs as; on a real host
+  /// this repeats what storage:ensure-directory did.
+  Future<void> prepareStorage(String dir, String owner) =>
+      ssh.exec(_host('root'), 'docker run --rm -v /var/lib/dokku/data/storage/$dir:/m alpine:3.20 chown $owner /m');
+
+  Future<String> inApp(String app, String command) async =>
+      (await ssh.exec(_host('root'), 'docker exec \$(docker ps -q --filter name=$app.web.1) $command')).stdout;
+
+  Future<String> httpStatus(String domain, [String path = '/']) async {
+    final r = await ssh.exec(_host('root'), 'curl -s -o /dev/null -w "%{http_code}" -H "Host: $domain" http://127.0.0.1$path');
+    return r.stdout.trim();
+  }
+
+  test('installs a Store template end to end', () async {
+    // The suite's image stands in for a real app; the commands are the planner's.
+    final colon = _image.lastIndexOf(':');
+    final (image, tag) = colon > _image.lastIndexOf('/') ? (_image.substring(0, colon), _image.substring(colon + 1)) : (_image, 'latest');
+    final t = AppTemplate(
+      id: 'e2e-store',
+      name: 'Store probe',
+      category: 'Test',
+      tagline: 'A template made of the test image.',
+      description: '',
+      homepage: 'https://example.com',
+      image: image,
+      tags: [tag],
+      port: 80,
+      glyph: 'sp',
+      hue: 0xFFFFFFFF,
+      mounts: const [TemplateMount('/data', name: 'data', what: 'data')],
+      env: const {'WHOAMI_NAME': '{app} at {url}'},
+      settings: const [TemplateSetting(['PROBE'], 'Probe', value: 'x y')],
+      secrets: const ['PROBE_SECRET'],
+      notes: 'Open {url}.',
+    );
+    final plan = planInstall(t, defaultChoices(t).copyWith(domain: 'probe.dokku.test', memory: '256m'), defaultDomain: 'e2e-store.dokku.test');
+    await installPlan(plan);
+
+    final h = _host('dokku');
+    Future<String> out(List<String> args) async => stripAnsi((await ssh.dokku(h, args)).stdout);
+    expect(await out(['ps:report', 'e2e-store']), contains(RegExp(r'Deployed:\s+true')));
+    expect(await out(['ports:report', 'e2e-store']), contains(RegExp(r'Ports map:\s+http:80:80')));
+    expect(await out(['storage:list', 'e2e-store']), contains('/var/lib/dokku/data/storage/e2e-store-data:/data'));
+    expect(await out(['domains:report', 'e2e-store']), contains(RegExp(r'Domains app vhosts:\s+probe\.dokku\.test')));
+    expect((await out(['config:get', 'e2e-store', 'WHOAMI_NAME'])).trim(), 'e2e-store at http://probe.dokku.test');
+    expect((await out(['config:get', 'e2e-store', 'PROBE'])).trim(), 'x y');
+    expect((await out(['config:get', 'e2e-store', 'PROBE_SECRET'])).trim(), plan.env['PROBE_SECRET']);
+    expect(await out(['resource:report', 'e2e-store']), contains('256m'));
+    expect(await httpStatus('probe.dokku.test'), '200', reason: 'the app answers on its domain through the proxy');
+  }, skip: skip, timeout: const Timeout(Duration(minutes: 10)));
+
+  // Pulls the real n8n image, so it only runs when asked for.
+  test('the n8n template comes up and answers', () async {
+    final t = templateOf('n8n')!;
+    final plan = planInstall(t, defaultChoices(t).copyWith(app: 'e2e-n8n'), defaultDomain: 'e2e-n8n.dokku.test');
+    await prepareStorage('e2e-n8n-data', '1000:1000');
+    await installPlan(plan);
+    var status = '';
+    for (var i = 0; i < 45 && status != '200'; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      status = await httpStatus('e2e-n8n.dokku.test', '/healthz');
+    }
+    expect(status, '200', reason: 'n8n should answer /healthz through the proxy');
+    expect(await inApp('e2e-n8n', 'ls /home/node/.n8n'), contains('config'), reason: 'n8n wrote its config to the mounted directory');
+  }, skip: skip ?? (Platform.environment['DOKKU_TEST_STORE'] == null ? 'set DOKKU_TEST_STORE=1 to pull and run n8n' : null),
+      timeout: const Timeout(Duration(minutes: 20)));
+
+  test('the RustDesk template publishes its ports without the proxy', () async {
+    final t = templateOf('rustdesk')!;
+    final plan = planInstall(t, defaultChoices(t).copyWith(app: 'e2e-rustdesk'), defaultDomain: 'e2e-rustdesk.dokku.test');
+    await installPlan(plan);
+    final h = _host('dokku');
+    expect(stripAnsi((await ssh.dokku(h, ['ps:report', 'e2e-rustdesk'])).stdout), contains(RegExp(r'Running:\s+true')));
+    expect(stripAnsi((await ssh.dokku(h, ['proxy:report', 'e2e-rustdesk'])).stdout), contains(RegExp(r'Proxy enabled:\s+false')));
+    final ports = await ssh.exec(_host('root'), 'docker port \$(docker ps -q --filter name=e2e-rustdesk.web.1)');
+    for (final p in ['21115/tcp -> 0.0.0.0:21115', '21116/tcp -> 0.0.0.0:21116', '21116/udp -> 0.0.0.0:21116', '21117/tcp -> 0.0.0.0:21117', '21119/tcp -> 0.0.0.0:21119']) {
+      expect(ports.stdout, contains(p), reason: 'published on the host');
+    }
+    // hbbs writes its key pair to the mounted directory on first start.
+    var keys = '';
+    for (var i = 0; i < 15 && !keys.contains('id_ed25519.pub'); i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      keys = await inApp('e2e-rustdesk', 'ls /data');
+    }
+    expect(keys, contains('id_ed25519.pub'));
+  }, skip: skip ?? (Platform.environment['DOKKU_TEST_STORE'] == null ? 'set DOKKU_TEST_STORE=1 to run the RustDesk server' : null),
+      timeout: const Timeout(Duration(minutes: 10)));
 
   test('runs a one-off command in the background', () async {
     await run([

@@ -12,6 +12,7 @@ import 'package:dokku_console/state/core.dart';
 import 'package:dokku_console/state/router.dart';
 import 'package:dokku_console/ui/shell/shell.dart';
 import 'package:dokku_console/ui/widgets/kit.dart';
+import 'package:flutter/foundation.dart' show ValueKey;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,11 +45,14 @@ void main() {
     _shot('app-switcher', const AppDetailRoute('demo-app'), then: (tester) => tester.tap(find.byTooltip('Switch app')));
     _shot('destroy-app', const AppDetailRoute('demo-app', AppTab.settings),
         then: (tester) => tester.tap(find.widgetWithText(Btn, 'Destroy app')));
+    _shot('store', const StoreRoute());
+    _shot('store-install', const StoreRoute(), then: (tester) => tester.tap(find.byKey(const ValueKey('install-n8n'))));
 
     _shot('phone-dashboard', const DashboardRoute(), size: _phone);
     _shot('phone-apps', const AppsRoute(), size: _phone);
     _shot('phone-app-processes', const AppDetailRoute('demo-app', AppTab.processes), size: _phone);
     _shot('phone-app-switcher', const AppDetailRoute('demo-app'), size: _phone, then: (tester) => tester.tap(find.byTooltip('Switch app')));
+    _shot('phone-store', const StoreRoute(), size: _phone);
   });
 }
 

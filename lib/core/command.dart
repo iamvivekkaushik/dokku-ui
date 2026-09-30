@@ -45,6 +45,9 @@ List<String> validateDokkuArgs(List<String> args) {
   return args;
 }
 
+/// What Dokku accepts as an app name.
+final appNamePattern = RegExp(r'^[a-z0-9][a-z0-9-]{0,62}$');
+
 final _privileged = RegExp(
     r'^(plugin:(install|install-dependencies|uninstall|update|enable|disable)|ssh-keys:(add|remove))$');
 

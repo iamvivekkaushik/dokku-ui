@@ -13,7 +13,6 @@ import '../actions.dart';
 import '../widgets/kit.dart';
 import 'terminal.dart';
 
-final appNamePattern = RegExp(r'^[a-z0-9][a-z0-9-]{0,62}$');
 final _repoPattern = RegExp(r'^(https?://|git@|ssh://)\S+$');
 final _lowercase = [FilteringTextInputFormatter.allow(RegExp(r'[a-z0-9-]'))];
 

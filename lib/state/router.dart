@@ -17,7 +17,7 @@ enum AppTab {
   final String label;
 }
 
-enum Section { dashboard, apps, datastores, monitoring, server }
+enum Section { dashboard, apps, store, datastores, monitoring, server }
 
 sealed class AppRoute {
   const AppRoute();
@@ -56,6 +56,16 @@ class AppDetailRoute extends AppRoute {
   bool operator ==(Object other) => other is AppDetailRoute && other.app == app && other.tab == tab;
   @override
   int get hashCode => Object.hash(app, tab);
+}
+
+class StoreRoute extends AppRoute {
+  const StoreRoute();
+  @override
+  Section get section => Section.store;
+  @override
+  bool operator ==(Object other) => other is StoreRoute;
+  @override
+  int get hashCode => 7;
 }
 
 class DatastoresRoute extends AppRoute {

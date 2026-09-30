@@ -15,6 +15,7 @@ import '../screens/datastores.dart';
 import '../screens/install.dart';
 import '../screens/monitoring.dart';
 import '../screens/server.dart';
+import '../screens/store.dart';
 import '../widgets/kit.dart';
 import 'action_dialogs.dart';
 import 'app_switcher.dart';
@@ -36,6 +37,7 @@ class _Nav {
 const _sidebar = [
   _Nav('Dashboard', LucideIcons.layoutDashboard, Section.dashboard),
   _Nav('Apps', LucideIcons.box, Section.apps),
+  _Nav('Store', LucideIcons.store, Section.store),
   _Nav('Datastores', LucideIcons.database, Section.datastores),
   _Nav('Domains & SSL', LucideIcons.globe, Section.apps, tab: AppTab.routing),
   _Nav('Environment', LucideIcons.keyRound, Section.apps, tab: AppTab.env),
@@ -47,10 +49,20 @@ const _sidebar = [
 AppRoute _routeFor(Section s) => switch (s) {
       Section.dashboard => const DashboardRoute(),
       Section.apps => const AppsRoute(),
+      Section.store => const StoreRoute(),
       Section.datastores => const DatastoresRoute(),
       Section.monitoring => const MonitoringRoute(),
       Section.server => const ServerRoute(),
     };
+
+/// The phone's bottom bar. The Store has no tab of its own there; it is
+/// reached from Apps, whose tab stays lit while in it.
+const _bottomSections = [Section.dashboard, Section.apps, Section.datastores, Section.monitoring, Section.server];
+
+int _bottomIndex(Section s) {
+  final i = _bottomSections.indexOf(s);
+  return i < 0 ? _bottomSections.indexOf(Section.apps) : i;
+}
 
 class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
@@ -127,6 +139,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         child: switch (route) {
           DashboardRoute() => DashboardScreen(host: host),
           AppsRoute() => AppsScreen(host: host),
+          StoreRoute() => StoreScreen(host: host),
           AppDetailRoute(:final app, :final tab) => AppDetailScreen(host: host, app: app, tab: tab),
           DatastoresRoute() => DatastoresScreen(host: host),
           MonitoringRoute() => MonitoringScreen(host: host),
@@ -173,8 +186,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       ),
       bottomNavigationBar: compact && host != null
           ? NavigationBar(
-              selectedIndex: route.section.index,
-              onDestinationSelected: (i) => ref.read(routerProvider.notifier).section(_routeFor(Section.values[i])),
+              selectedIndex: _bottomIndex(route.section),
+              onDestinationSelected: (i) => ref.read(routerProvider.notifier).section(_routeFor(_bottomSections[i])),
               destinations: const [
                 NavigationDestination(icon: Icon(LucideIcons.layoutDashboard), label: 'Dashboard'),
                 NavigationDestination(icon: Icon(LucideIcons.box), label: 'Apps'),

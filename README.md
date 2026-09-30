@@ -27,6 +27,10 @@
 - **The whole of Dokku.** Apps, deploys and builders, processes and scaling,
   config, domains and certificates, ports, storage and networks, datastores,
   logs and events, SSH keys, plugins, install and upgrade.
+- **A store of templates.** n8n, Inngest, Outpost, Uptime Kuma, Umami,
+  Vaultwarden, Ghost and RustDesk install in one go from their official
+  images, with persistent storage, config, datastores and a domain set up the
+  Dokku way. Every command is shown first; the result is an ordinary app.
 - **Careful with what matters.** Host keys are pinned, secrets are masked in
   previews and logs, and destroying an app means typing its name after reading
   what will go.
@@ -43,6 +47,10 @@
   <tr>
     <td><img src="docs/screenshots/datastores.png" alt="Datastores: plugins, services and app linkage"></td>
     <td><img src="docs/screenshots/server.png" alt="Server: SSH keys, system, upgrade and global configuration"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/store.png" alt="The Store: templates for n8n, Inngest, Outpost and more"></td>
+    <td><img src="docs/screenshots/store-install.png" alt="Installing n8n: storage, datastores, HTTPS and the commands that will run"></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/app-switcher.png" alt="An app overview with the app switcher open"></td>
@@ -137,6 +145,7 @@ only the path; the key stays in its file.
 | Area | Where | Dokku commands |
 | --- | --- | --- |
 | Apps | Apps, app Settings | `apps:create` `destroy` `list` `rename` `clone` `report` `lock` `unlock` |
+| Store | Store | Installs a template: `apps:create` `storage:ensure-directory` `storage:mount` `config:set` `ports:set` `domains:set` `resource:limit` `<service>:create` `<service>:link` `docker-options:add` `proxy:disable` `git:from-image` `letsencrypt:enable` |
 | Deploys | Deploy app, app Deploys | `git:sync` `git:from-image` `git:set` `git:unlock` `builds:list` `builds:output` `builds:cancel` `ps:rebuild` |
 | Builders | app Build | `builder:set` `builder:report` `builder-dockerfile:set` `buildpacks:add` `set` `remove` `clear` |
 | Processes | app Processes | `ps:scale` `start` `stop` `restart` `rebuild` `ps:set` `run` `run:detached` `enter` `cron:list` `cron:run` |
@@ -170,6 +179,13 @@ differ the app adapts:
   clears the app's default limits and sets the remaining ones again.
 - A port mapping that Dokku only detected cannot be removed, so it has no
   remove button. Mapping a port of your own replaces the detected ones.
+- An app that speaks no HTTP, such as the RustDesk server, gets its ports
+  published on the host through `docker-options` with the proxy disabled.
+  Dokku starts the new container before stopping the old one, and two
+  containers cannot hold the same host port, so such an app has to be stopped
+  before it is deployed again. Its image brings its own init (s6-overlay),
+  which has to be PID 1, so the template also turns off the `--init` Dokku
+  gives every container, with `scheduler-docker-local:set init-process false`.
 - `enter` names a container as `web.1`; anything after that is the command
   to run in it. Dokku starts `/bin/bash` unless `DOKKU_APP_SHELL` says
   otherwise, so on an image without bash the terminal opens `sh` instead.
@@ -274,7 +290,7 @@ DOKKU_TEST_KEYS=/path/to/keys DOKKU_TEST_PORT=3022 flutter test test/integration
 ## Project layout
 
 ```
-lib/core/          Pure Dart: command quoting, parsers, install script, host scripts
+lib/core/          Pure Dart: command quoting, parsers, install script, host scripts, the Store's templates
 lib/data/          SSH service, host and secret storage
 lib/state/         Riverpod providers: hosts, cached lookups, jobs, routing
 lib/ui/            Theme, widget kit, app shell, screens

@@ -50,7 +50,7 @@ void main() {
         final ssh = await pumpScreen(tester, const HomeShell(), size: size, host: host);
         final router = _router(tester);
 
-        for (final route in const [AppsRoute(), DatastoresRoute(), MonitoringRoute(), ServerRoute(), InstallRoute()]) {
+        for (final route in const [AppsRoute(), StoreRoute(), DatastoresRoute(), MonitoringRoute(), ServerRoute(), InstallRoute()]) {
           router.go(route);
           await settle(tester);
           expect(tester.takeException(), isNull, reason: '$route');
