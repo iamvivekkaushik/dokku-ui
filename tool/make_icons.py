@@ -66,6 +66,11 @@ def main():
     for size in (16, 32, 64, 128, 256, 512, 1024):
         save(icon(size, plate=0.82, radius=0.225, mark=0.48), f'{mac}/app_icon_{size}.png')
 
+    # Linux: the hicolor theme sizes, shipped in the bundle for linux/packaging/install.sh.
+    for size in (48, 64, 128, 256, 512):
+        save(icon(size, plate=1, radius=0.22, mark=0.6),
+             f'linux/packaging/icons/hicolor/{size}x{size}/apps/com.iamvivekkaushik.dokku_console.png')
+
     # Windows keeps every size in one file.
     big = icon(256, plate=1, radius=0.22, mark=0.6)
     big.save('windows/runner/resources/app_icon.ico', sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (256, 256)])

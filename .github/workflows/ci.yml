@@ -61,14 +61,27 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libjsoncpp-dev desktop-file-utils
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - run: flutter build linux --release
-      - run: tar -C build/linux/x64/release/bundle -czf dokku-console-linux-x64.tar.gz .
+      # One folder to unpack, carrying the launcher entry, icons and install
+      # script from linux/packaging along with the app.
+      - name: Package the bundle
+        run: |
+          mv build/linux/x64/release/bundle dokku-console
+          tar -czf dokku-console-linux-x64.tar.gz dokku-console
+      - name: Try the install script
+        run: |
+          desktop-file-validate dokku-console/share/applications/*.desktop
+          XDG_DATA_HOME="$PWD/xdg" dokku-console/install.sh
+          desktop-file-validate xdg/applications/com.iamvivekkaushik.dokku_console.desktop
+          test -f xdg/icons/hicolor/512x512/apps/com.iamvivekkaushik.dokku_console.png
+          XDG_DATA_HOME="$PWD/xdg" dokku-console/install.sh --uninstall
+          test ! -e xdg/applications/com.iamvivekkaushik.dokku_console.desktop
       - uses: actions/upload-artifact@v4
         with:
           name: dokku-console-linux

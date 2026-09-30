@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Dokku Console
+Comment=Manage Dokku servers over SSH
+TryExec=dokku_console
+Exec=dokku_console
+Icon=com.iamvivekkaushik.dokku_console
+Terminal=false
+Categories=Development;
+Keywords=dokku;ssh;deploy;server;
+StartupNotify=true
+StartupWMClass=com.iamvivekkaushik.dokku_console

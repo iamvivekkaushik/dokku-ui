@@ -126,3 +126,14 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Desktop integration for the bundle: the launcher entry and icons under share/,
+# and the script that registers them for the user from wherever the bundle is
+# unpacked. See packaging/install.sh.
+set(PACKAGING_DIR "${CMAKE_CURRENT_SOURCE_DIR}/packaging")
+install(PROGRAMS "${PACKAGING_DIR}/install.sh" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+install(FILES "${PACKAGING_DIR}/${APPLICATION_ID}.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications" COMPONENT Runtime)
+install(DIRECTORY "${PACKAGING_DIR}/icons" DESTINATION "${CMAKE_INSTALL_PREFIX}/share"
+  COMPONENT Runtime)
