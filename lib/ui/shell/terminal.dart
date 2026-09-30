@@ -103,6 +103,7 @@ class _TerminalPaneState extends ConsumerState<TerminalPane> {
   var _state = _State.connecting;
   int? _exitCode;
   var _closed = false;
+  var _retried = false;
   // The terminal reports its size once laid out; the session starts after that.
   final _sized = Completer<void>();
 
@@ -120,15 +121,29 @@ class _TerminalPaneState extends ConsumerState<TerminalPane> {
   Future<void> _start() async {
     await _sized.future.timeout(const Duration(seconds: 2), onTimeout: () {});
     if (_closed) return;
+    await _run(widget.spec.args);
+  }
+
+  /// Runs [args], or a login shell when null, until it exits.
+  Future<void> _run(List<String>? args) async {
     final host = widget.host;
     final ssh = ref.read(sshServiceProvider);
     final pty = Pty(cols: _terminal.viewWidth, rows: _terminal.viewHeight);
+    // The end of the output, to see how a command failed.
+    final tail = StringBuffer();
     void onData(String chunk, bool _) {
-      if (!_closed) _terminal.write(chunk);
+      if (_closed) return;
+      _terminal.write(chunk);
+      tail.write(chunk);
+      if (tail.length > 4096) {
+        final keep = '$tail'.substring(tail.length - 2048);
+        tail
+          ..clear()
+          ..write(keep);
+      }
     }
 
     try {
-      final args = widget.spec.args;
       final RemoteStream stream;
       if (args == null) {
         if (!host.hasShell) throw StateError('An interactive shell needs a shell user; the dokku user can only run dokku commands.');
@@ -144,6 +159,14 @@ class _TerminalPaneState extends ConsumerState<TerminalPane> {
       setState(() => _state = _State.live);
       final exit = await stream.done;
       if (_closed) return;
+      if (args != null && exit.code != 0 && _wantsSh(args, '$tail')) {
+        // Dokku starts /bin/bash unless DOKKU_APP_SHELL says otherwise, and
+        // Alpine images only have sh.
+        _retried = true;
+        _terminal.write('\r\n\x1b[90mNo /bin/bash in this image; opening sh instead. '
+            'Set DOKKU_APP_SHELL=/bin/sh on the app to make that the default.\x1b[0m\r\n');
+        return _run([...args, 'sh']);
+      }
       _terminal.write('\r\n\x1b[90m[process exited${exit.code != null ? ' with code ${exit.code}' : ''}]\x1b[0m\r\n');
       setState(() {
         _state = _State.exited;
@@ -155,6 +178,14 @@ class _TerminalPaneState extends ConsumerState<TerminalPane> {
       _terminal.write('\x1b[31m$e\x1b[0m\r\n');
       setState(() => _state = _State.exited);
     }
+  }
+
+  /// Whether `enter` failed only because the image lacks the shell Dokku
+  /// starts by default, rather than a program the user asked for.
+  bool _wantsSh(List<String> args, String output) {
+    if (_retried || subcommandOf(args) != 'enter') return false;
+    final program = missingProgram.firstMatch(output)?.group(1);
+    return program != null && !args.contains(program);
   }
 
   @override

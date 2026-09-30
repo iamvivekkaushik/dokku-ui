@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dokku_console/data/models.dart';
 import 'package:dokku_console/ui/screens/app/env.dart';
 import 'package:dokku_console/ui/screens/app/processes.dart';
+import 'package:dokku_console/ui/shell/terminal.dart';
 import 'package:dokku_console/ui/widgets/kit.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -285,9 +286,40 @@ void main() {
       await _press(tester, find.widgetWithText(Btn, 'web.2'));
       await tester.pump(const Duration(seconds: 3));
       expect(ssh.changes, [
-        ['enter', 'demo-app', 'web', '2'],
+        ['enter', 'demo-app', 'web.2'],
       ]);
+      expect(find.text('live'), findsOneWidget);
       await _press(tester, find.byTooltip('Close terminal'));
+      await finish(tester);
+    });
+
+    testWidgets('an image without bash gets sh instead', (tester) async {
+      const noBash = 'OCI runtime exec failed: exec failed: unable to start container process: '
+          'exec: "/bin/bash": stat /bin/bash: no such file or directory\r\n';
+      final ssh = await pumpScreen(tester, _processes(), answers: {'enter demo-app web.2': failed(noBash, code: 127)});
+      await _press(tester, find.widgetWithText(Btn, 'web.2'));
+      await tester.pump(const Duration(seconds: 3));
+      expect(ssh.changes, [
+        ['enter', 'demo-app', 'web.2'],
+        ['enter', 'demo-app', 'web.2', 'sh'],
+      ]);
+      expect(find.text('live'), findsOneWidget);
+      await _press(tester, find.byTooltip('Close terminal'));
+      await finish(tester);
+    });
+
+    testWidgets('a program the user asked for is not swapped for sh', (tester) async {
+      const noPython = 'exec: "python": executable file not found in \$PATH\r\n';
+      final ssh = await pumpScreen(
+        tester,
+        TerminalPane(host: dokkuHost, spec: const TerminalSpec.dokku(['enter', 'demo-app', 'web.2', 'python']), title: 'enter'),
+        answers: {'enter demo-app web.2 python': failed(noPython, code: 127)},
+      );
+      await tester.pump(const Duration(seconds: 3));
+      expect(ssh.changes, [
+        ['enter', 'demo-app', 'web.2', 'python'],
+      ]);
+      expect(find.text('exited 127'), findsOneWidget);
       await finish(tester);
     });
 

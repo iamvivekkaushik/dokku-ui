@@ -263,8 +263,8 @@ class _OneOffCardState extends ConsumerState<_OneOffCard> with Busy {
         ? 'dokku run $app <command>'
         : (words == null ? 'dokku run $app $typed' : displayCommand(['run', app, ...words]));
     final shownEnter = running.isEmpty
-        ? 'dokku enter $app <type> <number>'
-        : displayCommand(['enter', app, running.first.type, '${running.first.index}']);
+        ? 'dokku enter $app <type>.<number>'
+        : displayCommand(['enter', app, '${running.first.type}.${running.first.index}']);
 
     final input = AppInput(
       controller: _command,
@@ -301,7 +301,7 @@ class _OneOffCardState extends ConsumerState<_OneOffCard> with Busy {
               for (final p in running)
                 Btn(p.name,
                     mono: true,
-                    onPressed: () => openTerminal(context, host, TerminalSpec.dokku(['enter', app, p.type, '${p.index}']))),
+                    onPressed: () => openTerminal(context, host, TerminalSpec.dokku(['enter', app, '${p.type}.${p.index}']))),
               if (ps.loading) const Spinner(size: 11, color: C.muted),
               if (!ps.loading && running.isEmpty) Text('none running', style: T.sans(12, color: C.dim)),
             ]),

@@ -141,9 +141,11 @@ class FakeSsh extends SshService {
     scheduleMicrotask(() {
       if (r.stdout.isNotEmpty) onData(r.stdout, false);
       if (r.stderr.isNotEmpty) onData(r.stderr, true);
-      // Follow-mode commands stay open until they are stopped.
+      // Follow-mode commands stay open until they are stopped, and so does an
+      // interactive one unless a fixture scripts how it ends.
       final follows = args.contains('-t') || args.contains('--tail');
-      if (!follows && pty == null) s.finish(r.code ?? 1);
+      final scripted = fixtures.containsKey(args.join(' '));
+      if (!follows && (pty == null || scripted)) s.finish(r.code ?? 1);
     });
     return s;
   }

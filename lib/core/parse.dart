@@ -453,3 +453,7 @@ bool isNewerVersion(String? latest, String? current) {
 bool notSupported(String output) =>
     RegExp(r'is not a dokku command|Invalid flag passed|unknown flag|\bcmd-[\w-]+: command not found', caseSensitive: false)
         .hasMatch(output);
+
+/// Docker's complaint when the program to start is not in the image, with the
+/// program in group 1: `exec: "/bin/bash": stat /bin/bash: no such file or directory`.
+final missingProgram = RegExp(r'exec: \\?"([^"\\]+)\\?": (?:stat [^:]+: no such file or directory|executable file not found)');

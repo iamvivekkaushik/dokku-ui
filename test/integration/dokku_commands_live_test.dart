@@ -24,6 +24,9 @@ final _address = Platform.environment['DOKKU_TEST_HOST'] ?? '127.0.0.1';
 final _port = int.parse(Platform.environment['DOKKU_TEST_PORT'] ?? '3022');
 final _image = Platform.environment['DOKKU_TEST_IMAGE'] ?? 'traefik/whoami:v1.10';
 
+/// An image with sh but no bash, the case Dokku's default shell does not cover.
+final _shellImage = Platform.environment['DOKKU_TEST_SHELL_IMAGE'] ?? 'nginx:1.27-alpine';
+
 const _app = 'e2e-app';
 
 Host _host(String user) =>
@@ -111,6 +114,7 @@ void main() {
       ['--force', 'apps:destroy', _app],
       ['--force', 'apps:destroy', 'e2e-clone'],
       ['--force', 'apps:destroy', 'e2e-renamed'],
+      ['--force', 'apps:destroy', 'e2e-shell'],
       ['redis:destroy', 'e2e-cache', '--force'],
       ['network:destroy', '--force', 'e2e-net'],
     ]) {
@@ -360,6 +364,39 @@ void main() {
       const _Step(['--force', 'apps:destroy', 'e2e-renamed'], then: (['--quiet', 'apps:list'], _Without('e2e-renamed'))),
     ]);
   }, skip: skip);
+
+  test('enter opens a shell in a running container', () async {
+    await run([
+      const _Step(['--force', 'apps:destroy', 'e2e-shell'], want: _Want.any),
+      const _Step(['apps:create', 'e2e-shell']),
+      _Step(['git:from-image', 'e2e-shell', _shellImage], then: (const ['ps:report', 'e2e-shell'], RegExp(r'Deployed:\s+true'))),
+    ]);
+
+    Future<(String, StreamExit)> session(List<String> args, {List<String> type = const []}) async {
+      final out = StringBuffer();
+      final s = await ssh.dokkuStream(_host('dokku'), args, pty: const Pty(), onData: (c, _) => out.write(c));
+      for (final line in type) {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        s.write('$line\n');
+      }
+      final exit = await s.done.timeout(const Duration(seconds: 30));
+      return (stripAnsi('$out'), exit);
+    }
+
+    // A fourth argument is a command to run, which is why the app sends web.1 as one word.
+    final (wrong, wrongExit) = await session(['enter', 'e2e-shell', 'web', '1']);
+    expect(wrongExit.code, isNot(0));
+    expect(wrong, contains('exec: "1"'));
+
+    // Dokku starts bash, which this image lacks; the terminal recognises this and opens sh.
+    final (noBash, noBashExit) = await session(['enter', 'e2e-shell', 'web.1']);
+    expect(noBashExit.code, isNot(0));
+    expect(missingProgram.firstMatch(noBash)?.group(1), '/bin/bash');
+
+    final (shell, shellExit) = await session(['enter', 'e2e-shell', 'web.1', 'sh'], type: ['echo hi-\$((20+22))', 'exit']);
+    expect(shell, contains('hi-42'));
+    expect(shellExit.code, 0);
+  }, skip: skip, timeout: const Timeout(Duration(minutes: 5)));
 
   test('runs a one-off command in the background', () async {
     await run([
