@@ -63,6 +63,9 @@ class StoreScreen extends ConsumerStatefulWidget {
 class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
   final _filter = TextEditingController();
 
+  /// Empty means every category.
+  String _category = '';
+
   @override
   void dispose() {
     _filter.dispose();
@@ -88,9 +91,10 @@ class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
     final ds = ref.watch(datastoresProvider(host.id));
     final plugins = {for (final p in ds.value?.plugins ?? <PluginInfo>[]) if (p.enabled) p.name};
     final q = _filter.text.trim().toLowerCase();
+    final categories = templateCategories();
     final list = [
       for (final t in templates)
-        if (q.isEmpty || '${t.name} ${t.category} ${t.tagline}'.toLowerCase().contains(q)) t,
+        if ((_category.isEmpty || t.category == _category) && (q.isEmpty || '${t.name} ${t.category} ${t.tagline}'.toLowerCase().contains(q))) t,
     ];
     final compact = Bp.isCompact(context);
 
@@ -106,7 +110,14 @@ class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
         'Every command is shown before it runs, and afterwards the app is yours to change like any other.',
         style: T.small,
       ),
-      if (list.isEmpty) EmptyBox('No templates match “$q”.', margin: EdgeInsets.zero),
+      Seg<String>(
+        value: _category,
+        options: ['', ...categories.keys],
+        labels: (c) => c.isEmpty ? 'All · ${templates.length}' : '$c · ${categories[c]}',
+        small: true,
+        onChanged: (c) => setState(() => _category = c),
+      ),
+      if (list.isEmpty) EmptyBox(q.isEmpty ? 'No templates in $_category.' : 'No templates match “$q”.', margin: EdgeInsets.zero),
       if (list.isNotEmpty)
         AutoGrid(minWidth: 280, children: [
           for (final t in list)
@@ -181,8 +192,8 @@ class _TemplateCard extends StatelessWidget {
     final pill = Pill(s.required ? s.type : '${s.type} · optional', tone: has || !s.required ? Tone.mute : Tone.warn, dot: false, mono: true);
     if (has) return pill;
     return Tooltip(
-      message: 'The ${s.type} plugin is not installed. '
-          '${s.required ? 'The install dialog can add it.' : 'Optional: the Datastores page can add it.'}',
+      message: 'The ${s.type} plugin is not installed${s.required ? '' : ', and it is optional'}. '
+          'The install dialog can add it, or take the URL of one running elsewhere.',
       child: pill,
     );
   }
@@ -206,10 +217,11 @@ class _InstallDialogState extends ConsumerState<InstallDialog> with Busy {
   final _email = TextEditingController();
   final _memory = TextEditingController();
   late final _settings = {for (final s in widget.template.settings) s.id: TextEditingController(text: s.value)};
+  late final _urls = {for (final s in widget.template.services) s.type: TextEditingController()};
 
   @override
   void dispose() {
-    for (final c in [_name, _domain, _email, _memory, ..._settings.values]) {
+    for (final c in [_name, _domain, _email, _memory, ..._settings.values, ..._urls.values]) {
       c.dispose();
     }
     super.dispose();
@@ -218,6 +230,8 @@ class _InstallDialogState extends ConsumerState<InstallDialog> with Busy {
   void _set(InstallChoices c) => setState(() => _c = c);
 
   void _setting(String id, String value) => _set(_c.copyWith(settings: {..._c.settings, id: value}));
+
+  void _url(String type, String value) => _set(_c.copyWith(urls: {..._c.urls, type: value}));
 
   Future<void> _installPlugin(String type) async {
     final d = datastoreOf(type);
@@ -346,23 +360,43 @@ class _InstallDialogState extends ConsumerState<InstallDialog> with Busy {
     );
   }
 
+  /// A datastore is provisioned with its plugin or, given a URL, taken from
+  /// wherever one runs; only the first needs the plugin.
   List<Widget> _service(TemplateService s, Set<String> plugins) {
     final def = datastoreOf(s.type);
     final name = def?.name ?? s.type;
     final has = plugins.contains(s.type);
     final on = _c.services.contains(s.type);
+    final url = _c.urlOf(s.type);
+    final valid = looksLikeServiceUrl(url);
+    final example = serviceUrlExample(s.type);
     final why = s.why.isEmpty ? '' : ' ${s.why}';
     final root = widget.host.hasShell;
     return [
       SwitchRow(
         title: s.required ? '$name, required' : name,
-        desc: has ? '${s.type}:create ${_c.app}-${s.suffix}, linked as ${s.from}.$why' : 'The ${s.type} plugin is not installed.$why',
+        desc: on && url.isNotEmpty
+            ? 'Nothing is provisioned: ${s.from} is set from the URL below.'
+            : has
+                ? '${s.type}:create ${_c.app}-${s.suffix}, linked as ${s.from}.$why'
+                : 'The ${s.type} plugin is not installed. Install it, or give the URL of one running elsewhere.$why',
         value: on,
-        onChanged: s.required || !has
+        onChanged: s.required
             ? null
             : (v) => _set(_c.copyWith(services: v ? <String>{..._c.services, s.type} : (<String>{..._c.services}..remove(s.type)))),
       ),
-      if (!has && def != null)
+      if (on)
+        Field(
+          '$name URL',
+          hint: url.isEmpty
+              ? 'Empty means a new service on this host. Or the URL of one running elsewhere, reachable from this host.'
+              : valid
+                  ? 'Set as ${s.from} before the deploy; the preview hides it.'
+                  : 'That needs a scheme and a host, like $example.',
+          hintTone: url.isNotEmpty && !valid ? Tone.bad : null,
+          child: AppInput(controller: _urls[s.type], large: true, hint: example, onChanged: (v) => _url(s.type, v)),
+        ),
+      if (on && url.isEmpty && !has && def != null)
         Row(children: [
           Expanded(child: Text(root ? 'plugin:install ${def.repo}' : _needsRoot, style: T.hint)),
           const SizedBox(width: 8),

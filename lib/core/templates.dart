@@ -1,7 +1,8 @@
 /// The Store: recipes that turn an official Docker image into a running Dokku
 /// app the way one would set it up by hand. Storage is mounted, config set,
-/// datastores provisioned and linked, the port mapped, and then the image is
-/// deployed. Every step is an ordinary Dokku command, shown before it runs.
+/// datastores provisioned and linked, or set from the URL of one running
+/// elsewhere, the port mapped, and then the image is deployed. Every step is
+/// an ordinary Dokku command, shown before it runs.
 library;
 
 import 'dart:convert';
@@ -196,7 +197,7 @@ const templates = [
   AppTemplate(
     id: 'inngest',
     name: 'Inngest',
-    category: 'Background jobs',
+    category: 'Developer tools',
     tagline: 'Durable functions, queues and workflows for your own apps.',
     description: 'The self-hosted Inngest server: event API, executor and dashboard in one container. '
         'Keeps state in SQLite on the mounted directory; add PostgreSQL and Redis for production.',
@@ -221,7 +222,7 @@ const templates = [
   AppTemplate(
     id: 'outpost',
     name: 'Outpost',
-    category: 'Webhooks',
+    category: 'Developer tools',
     tagline: 'Outbound webhooks and event destinations, by Hookdeck.',
     description: 'The Outpost API, delivery and log services in one container. '
         'Needs PostgreSQL, Redis and RabbitMQ, which are provisioned and linked here.',
@@ -256,7 +257,7 @@ const templates = [
   AppTemplate(
     id: 'uptime-kuma',
     name: 'Uptime Kuma',
-    category: 'Monitoring',
+    category: 'Monitoring & alerts',
     tagline: 'Uptime monitoring with status pages and notifications.',
     description: 'Checks HTTP, TCP, DNS and more on a schedule, with status pages and alerts to chat and mail. '
         'Everything it knows lives on the mounted directory.',
@@ -289,7 +290,7 @@ const templates = [
   AppTemplate(
     id: 'vaultwarden',
     name: 'Vaultwarden',
-    category: 'Passwords',
+    category: 'Identity & passwords',
     tagline: 'A Bitwarden-compatible password server.',
     description: 'Works with the official Bitwarden apps and browser extensions. '
         'Vaults and attachments live on the mounted directory. The web vault needs HTTPS.',
@@ -357,9 +358,397 @@ const templates = [
         'the host, which the SSH terminal can print. Firewalls must let 21115 to 21119 through. To update it later, stop the '
         'app first: two containers cannot share the published ports.',
   ),
+  AppTemplate(
+    id: 'node-red',
+    name: 'Node-RED',
+    category: 'Automation',
+    tagline: 'Flow-based programming for wiring devices, APIs and services.',
+    description: 'The editor and the runtime in one container. Flows, credentials, settings and installed nodes live on the '
+        'mounted directory. The editor is open to everyone until adminAuth is set in settings.js there.',
+    homepage: 'https://nodered.org/docs/getting-started/docker',
+    image: 'nodered/node-red',
+    port: 1880,
+    glyph: 'nr',
+    hue: 0xFFB91C1C,
+    mounts: [TemplateMount('/data', name: 'data', what: 'flows, credentials, settings and installed nodes')],
+    settings: [TemplateSetting(['TZ'], 'Timezone', value: 'UTC', hint: 'For the inject node and the logs, such as Europe/Berlin.')],
+    notes: 'Open {url} to build flows. Set adminAuth in {data}/settings.js on the host to require a login.',
+  ),
+  AppTemplate(
+    id: 'windmill',
+    name: 'Windmill',
+    category: 'Automation',
+    tagline: 'Scripts, flows and apps as internal tools, with the workers built in.',
+    description: 'The server and its workers in one container, in standalone mode. Needs PostgreSQL, which is provisioned and '
+        'linked here; nothing is mounted. Scripts run in Python, TypeScript, Go, Bash and more.',
+    homepage: 'https://www.windmill.dev/docs/advanced/self_host',
+    image: 'ghcr.io/windmill-labs/windmill',
+    tags: ['main'],
+    port: 8000,
+    glyph: 'wm',
+    hue: 0xFF0284C7,
+    services: [TemplateService('postgres', required: true, env: {'DATABASE_URL': '{url}?sslmode=disable'})],
+    env: {'MODE': 'standalone', 'BASE_URL': '{url}'},
+    notes: 'Sign in at {url} as admin@windmill.dev with the password changeme, and change it right away.',
+  ),
+  AppTemplate(
+    id: 'gitea',
+    name: 'Gitea',
+    category: 'Developer tools',
+    tagline: 'A painless self-hosted Git service.',
+    description: 'The rootless image: repositories, the SQLite database and app.ini live on the mounted directories, owned by '
+        'its uid 1000. Git over SSH is published on host port 2222. Add PostgreSQL for larger installs.',
+    homepage: 'https://docs.gitea.com/installation/install-with-docker-rootless',
+    image: 'gitea/gitea',
+    tags: ['latest-rootless'],
+    port: 3000,
+    publish: ['2222:2222'],
+    glyph: 'gi',
+    hue: 0xFF609926,
+    mounts: [
+      TemplateMount('/var/lib/gitea', name: 'data', what: 'repositories, the SQLite database and uploads'),
+      TemplateMount('/etc/gitea', name: 'config', what: 'app.ini'),
+    ],
+    services: [
+      TemplateService('postgres', why: 'For larger installs; SQLite otherwise.', env: {
+        'GITEA__database__DB_TYPE': 'postgres',
+        'GITEA__database__HOST': '{host}:{port}',
+        'GITEA__database__NAME': '{database}',
+        'GITEA__database__USER': '{user}',
+        'GITEA__database__PASSWD': '{password}',
+      }),
+    ],
+    env: {
+      'GITEA__server__ROOT_URL': '{url}/',
+      'GITEA__server__DOMAIN': '{domain}',
+      'GITEA__server__SSH_DOMAIN': '{domain}',
+      'GITEA__server__SSH_PORT': '2222',
+      'GITEA__server__SSH_LISTEN_PORT': '2222',
+      'GITEA__server__START_SSH_SERVER': 'true',
+    },
+    notes: 'Open {url} to finish the setup and create the administrator. Clone over SSH with ssh://git@{domain}:2222/<owner>/<repo>.git; '
+        'the firewall must let 2222 through. To update it later, stop the app first: two containers cannot share the published port.',
+  ),
+  AppTemplate(
+    id: 'keycloak',
+    name: 'Keycloak',
+    category: 'Identity & passwords',
+    tagline: 'Single sign-on with OpenID Connect and SAML.',
+    description: 'Realms, users and clients live in PostgreSQL, which is provisioned and linked here; nothing is mounted. '
+        'Runs in production mode, which needs HTTPS: turn on the certificate. The first start builds the server, so give it a minute.',
+    homepage: 'https://www.keycloak.org/server/containers',
+    image: 'quay.io/keycloak/keycloak',
+    port: 8080,
+    glyph: 'kc',
+    hue: 0xFF008AAA,
+    startCommand: 'start',
+    services: [
+      TemplateService('postgres', required: true, env: {
+        'KC_DB': 'postgres',
+        'KC_DB_URL': 'jdbc:postgresql://{host}:{port}/{database}',
+        'KC_DB_USERNAME': '{user}',
+        'KC_DB_PASSWORD': '{password}',
+      }),
+    ],
+    env: {'KC_HOSTNAME': '{url}', 'KC_HTTP_ENABLED': 'true', 'KC_PROXY_HEADERS': 'xforwarded'},
+    settings: [TemplateSetting(['KC_BOOTSTRAP_ADMIN_USERNAME'], 'Admin user name', value: 'admin')],
+    secrets: ['KC_BOOTSTRAP_ADMIN_PASSWORD'],
+    notes: 'Open {url}/admin and sign in as the admin user with the KC_BOOTSTRAP_ADMIN_PASSWORD from the Environment tab, '
+        'then create a permanent administrator: the bootstrap one is temporary.',
+  ),
+  AppTemplate(
+    id: 'gotify',
+    name: 'Gotify',
+    category: 'Monitoring & alerts',
+    tagline: 'A simple server for sending and receiving push messages.',
+    description: 'Applications post messages over a REST API; the web UI and the Android app receive them. '
+        'Users, applications and messages live on the mounted directory.',
+    homepage: 'https://gotify.net/docs/install',
+    image: 'gotify/server',
+    port: 80,
+    glyph: 'gt',
+    hue: 0xFF3B82F6,
+    mounts: [TemplateMount('/app/data', name: 'data', what: 'users, applications and messages', owner: 'false')],
+    settings: [TemplateSetting(['GOTIFY_DEFAULTUSER_NAME'], 'Admin user name', value: 'admin')],
+    secrets: ['GOTIFY_DEFAULTUSER_PASS'],
+    notes: 'Sign in at {url} as the admin user with the GOTIFY_DEFAULTUSER_PASS from the Environment tab, '
+        'then create an application to get a token for sending.',
+  ),
+  AppTemplate(
+    id: 'ntfy',
+    name: 'ntfy',
+    category: 'Monitoring & alerts',
+    tagline: 'Push notifications to your phone or desktop over plain HTTP.',
+    description: 'Publish to a topic with curl and subscribe from the web, Android or iOS apps. The message cache, attachments '
+        'and the user database live on the mounted directories. Everyone may publish and subscribe until access is restricted.',
+    homepage: 'https://docs.ntfy.sh/install/',
+    image: 'binwiederhier/ntfy',
+    port: 80,
+    glyph: 'nt',
+    hue: 0xFF338574,
+    startCommand: 'serve',
+    mounts: [
+      TemplateMount('/var/cache/ntfy', name: 'cache', what: 'the message cache and attachments', owner: 'false'),
+      TemplateMount('/var/lib/ntfy', name: 'auth', what: 'users and access control', owner: 'false'),
+    ],
+    env: {
+      'NTFY_BASE_URL': '{url}',
+      'NTFY_LISTEN_HTTP': ':80',
+      'NTFY_BEHIND_PROXY': 'true',
+      'NTFY_CACHE_FILE': '/var/cache/ntfy/cache.db',
+      'NTFY_ATTACHMENT_CACHE_DIR': '/var/cache/ntfy/attachments',
+      'NTFY_AUTH_FILE': '/var/lib/ntfy/user.db',
+      'NTFY_ENABLE_LOGIN': 'true',
+    },
+    settings: [
+      TemplateSetting(['NTFY_AUTH_DEFAULT_ACCESS'], 'Access without login',
+          value: 'read-write',
+          choices: ['read-write', 'read-only', 'write-only', 'deny-all'],
+          hint: 'deny-all makes every topic private; users are added with ntfy user add.'),
+    ],
+    notes: 'Publish with curl -d hello {url}/mytopic and subscribe at {url}/mytopic. To add users, run '
+        'ntfy user add --role=admin <name> in the container from the Processes tab.',
+  ),
+  AppTemplate(
+    id: 'wikijs',
+    name: 'Wiki.js',
+    category: 'Notes & wikis',
+    tagline: 'A modern wiki with Markdown, a visual editor and search.',
+    description: 'Pages, users and assets all live in PostgreSQL, which is provisioned and linked here; nothing is mounted. '
+        'Authentication, storage and search modules are set up in the administration area.',
+    homepage: 'https://docs.requarks.io/install/docker',
+    image: 'ghcr.io/requarks/wiki',
+    tags: ['2'],
+    port: 3000,
+    glyph: 'wj',
+    hue: 0xFF1976D2,
+    services: [
+      TemplateService('postgres', required: true, env: {
+        'DB_TYPE': 'postgres',
+        'DB_HOST': '{host}',
+        'DB_PORT': '{port}',
+        'DB_USER': '{user}',
+        'DB_PASS': '{password}',
+        'DB_NAME': '{database}',
+        'DB_SSL': 'false',
+      }),
+    ],
+    notes: 'Open {url} to create the administrator account and confirm the site URL.',
+  ),
+  AppTemplate(
+    id: 'docmost',
+    name: 'Docmost',
+    category: 'Notes & wikis',
+    tagline: 'Collaborative wiki and documentation, in the spirit of Notion.',
+    description: 'Real-time editing, spaces and comments. Needs PostgreSQL and Redis, which are provisioned and linked here; '
+        'uploads live on the mounted directory.',
+    homepage: 'https://docmost.com/docs/self-hosting/',
+    image: 'docmost/docmost',
+    port: 3000,
+    glyph: 'dm',
+    hue: 0xFF14B8A6,
+    mounts: [TemplateMount('/app/data/storage', name: 'storage', what: 'uploads and attachments')],
+    services: [
+      TemplateService('postgres', required: true),
+      TemplateService('redis', suffix: 'redis', required: true, from: 'REDIS_URL'),
+    ],
+    env: {'APP_URL': '{url}'},
+    secrets: ['APP_SECRET'],
+    notes: 'Open {url} to create the workspace and its first account.',
+  ),
+  AppTemplate(
+    id: 'memos',
+    name: 'Memos',
+    category: 'Notes & wikis',
+    tagline: 'A lightweight, self-contained note-taking service.',
+    description: 'Quick Markdown notes with tags, sharing and a REST API. Everything lives in SQLite on the mounted directory.',
+    homepage: 'https://usememos.com/docs/install',
+    image: 'neosmemo/memos',
+    tags: ['stable', 'latest'],
+    port: 5230,
+    glyph: 'me',
+    hue: 0xFFE9A23B,
+    mounts: [TemplateMount('/var/opt/memos', name: 'data', what: 'the SQLite database and uploads', owner: 'false')],
+    notes: 'Open {url} to create the first account, which becomes the host user.',
+  ),
+  AppTemplate(
+    id: 'miniflux',
+    name: 'Miniflux',
+    category: 'Reading',
+    tagline: 'A minimalist feed reader.',
+    description: 'Feeds, entries and users live in PostgreSQL, which is provisioned and linked here; nothing is mounted. '
+        'Migrations run and the admin account is created on the first start.',
+    homepage: 'https://miniflux.app/docs/docker.html',
+    image: 'miniflux/miniflux',
+    port: 8080,
+    glyph: 'mf',
+    hue: 0xFF2E7D32,
+    services: [TemplateService('postgres', required: true, env: {'DATABASE_URL': '{url}?sslmode=disable'})],
+    env: {'BASE_URL': '{url}/', 'RUN_MIGRATIONS': '1', 'CREATE_ADMIN': '1'},
+    settings: [TemplateSetting(['ADMIN_USERNAME'], 'Admin user name', value: 'admin')],
+    secrets: ['ADMIN_PASSWORD'],
+    notes: 'Sign in at {url} as the admin user with the ADMIN_PASSWORD from the Environment tab, and change it under Settings.',
+  ),
+  AppTemplate(
+    id: 'vikunja',
+    name: 'Vikunja',
+    category: 'Teamwork',
+    tagline: 'To-do lists, kanban boards and Gantt charts for teams.',
+    description: 'The API and the frontend in one container. Keeps tasks in SQLite on the mounted directory; add PostgreSQL '
+        'for production. Attachments and avatars live on a second mount.',
+    homepage: 'https://vikunja.io/docs/installing/',
+    image: 'vikunja/vikunja',
+    port: 3456,
+    glyph: 'vk',
+    hue: 0xFF1973FF,
+    mounts: [
+      TemplateMount('/db', name: 'db', what: 'the SQLite database'),
+      TemplateMount('/app/vikunja/files', name: 'files', what: 'attachments and avatars'),
+    ],
+    services: [
+      TemplateService('postgres', why: 'Recommended for production; SQLite otherwise.', env: {
+        'VIKUNJA_DATABASE_TYPE': 'postgres',
+        'VIKUNJA_DATABASE_HOST': '{host}:{port}',
+        'VIKUNJA_DATABASE_DATABASE': '{database}',
+        'VIKUNJA_DATABASE_USER': '{user}',
+        'VIKUNJA_DATABASE_PASSWORD': '{password}',
+        'VIKUNJA_DATABASE_SSLMODE': 'disable',
+      }),
+    ],
+    env: {'VIKUNJA_SERVICE_PUBLICURL': '{url}/', 'VIKUNJA_DATABASE_PATH': '/db/vikunja.db'},
+    secrets: ['VIKUNJA_SERVICE_JWTSECRET'],
+    notes: 'Open {url} to register the first account.',
+  ),
+  AppTemplate(
+    id: 'planka',
+    name: 'Planka',
+    category: 'Teamwork',
+    tagline: 'Kanban boards in the Trello style, updated in real time.',
+    description: 'Projects, boards, cards and attachments. Needs PostgreSQL, which is provisioned and linked here; uploads live '
+        'on the mounted directory. The admin account is created on the first start.',
+    homepage: 'https://docs.planka.cloud/',
+    image: 'ghcr.io/plankanban/planka',
+    port: 1337,
+    glyph: 'pk',
+    hue: 0xFF17A2B8,
+    mounts: [TemplateMount('/app/data', name: 'data', what: 'attachments, avatars and background images')],
+    services: [TemplateService('postgres', required: true)],
+    env: {'BASE_URL': '{url}', 'TRUST_PROXY': 'true'},
+    settings: [
+      TemplateSetting(['DEFAULT_ADMIN_EMAIL'], 'Admin email', value: 'admin@example.com', hint: 'The login; change it after the first sign-in.'),
+      TemplateSetting(['DEFAULT_ADMIN_USERNAME'], 'Admin user name', value: 'admin'),
+      TemplateSetting(['DEFAULT_ADMIN_NAME'], 'Admin display name', value: 'Admin'),
+    ],
+    secrets: ['SECRET_KEY', 'DEFAULT_ADMIN_PASSWORD'],
+    notes: 'Sign in at {url} with the admin email and the DEFAULT_ADMIN_PASSWORD from the Environment tab.',
+  ),
+  AppTemplate(
+    id: 'mattermost',
+    name: 'Mattermost',
+    category: 'Teamwork',
+    tagline: 'Team chat with channels, calls and integrations.',
+    description: 'The Team Edition server. Needs PostgreSQL, which is provisioned and linked here. Config, uploads and plugins '
+        'live on the mounted directories, owned by its uid 2000.',
+    homepage: 'https://docs.mattermost.com/deployment-guide/server/deploy-containers.html',
+    image: 'mattermost/mattermost-team-edition',
+    port: 8065,
+    glyph: 'mm',
+    hue: 0xFF5B8DEF,
+    mounts: [
+      TemplateMount('/mattermost/config', name: 'config', what: 'the server configuration', owner: 'paketo'),
+      TemplateMount('/mattermost/data', name: 'data', what: 'uploads and files', owner: 'paketo'),
+      TemplateMount('/mattermost/plugins', name: 'plugins', what: 'server plugins', owner: 'paketo'),
+      TemplateMount('/mattermost/client/plugins', name: 'client-plugins', what: 'web app plugins', owner: 'paketo'),
+    ],
+    services: [
+      TemplateService('postgres', required: true, env: {
+        'MM_SQLSETTINGS_DRIVERNAME': 'postgres',
+        'MM_SQLSETTINGS_DATASOURCE': '{url}?sslmode=disable&connect_timeout=10',
+      }),
+    ],
+    env: {'MM_SERVICESETTINGS_SITEURL': '{url}'},
+    notes: 'Open {url} to create the first account, which becomes the system administrator.',
+  ),
+  AppTemplate(
+    id: 'open-webui',
+    name: 'Open WebUI',
+    category: 'AI',
+    tagline: 'A chat interface for Ollama and OpenAI-compatible APIs.',
+    description: 'Chats, users, documents and settings live on the mounted directory. Point it at an Ollama server or add an API '
+        'key afterwards; the image is large and bundles embedding models for retrieval.',
+    homepage: 'https://docs.openwebui.com/getting-started/quick-start/',
+    image: 'ghcr.io/open-webui/open-webui',
+    tags: ['main'],
+    port: 8080,
+    glyph: 'ow',
+    hue: 0xFF22C55E,
+    mounts: [TemplateMount('/app/backend/data', name: 'data', what: 'chats, users, documents and settings', owner: 'false')],
+    env: {'WEBUI_URL': '{url}'},
+    settings: [TemplateSetting(['OLLAMA_BASE_URL'], 'Ollama URL', hint: 'Such as http://10.0.0.5:11434; empty means none for now.')],
+    secrets: ['WEBUI_SECRET_KEY'],
+    notes: 'Open {url} to create the first account, which becomes the administrator. Connections to Ollama and OpenAI-compatible '
+        'APIs are under Admin settings.',
+  ),
+  AppTemplate(
+    id: 'excalidraw',
+    name: 'Excalidraw',
+    category: 'Whiteboard',
+    tagline: 'A virtual whiteboard for hand-drawn diagrams.',
+    description: 'The editor alone, served as static files: drawings stay in the browser and export to files. '
+        'No storage and no datastore; live collaboration would need the separate room server.',
+    homepage: 'https://github.com/excalidraw/excalidraw',
+    image: 'excalidraw/excalidraw',
+    port: 80,
+    glyph: 'ex',
+    hue: 0xFF6965DB,
+    notes: 'Open {url} and draw.',
+  ),
 ];
 
 AppTemplate? templateOf(String id) => templates.where((t) => t.id == id).firstOrNull;
+
+/// Every category in the catalog, in alphabetical order, with how many
+/// templates each holds.
+Map<String, int> templateCategories() {
+  final counts = <String, int>{};
+  for (final t in templates) {
+    counts[t.category] = (counts[t.category] ?? 0) + 1;
+  }
+  return {for (final k in counts.keys.toList()..sort()) k: counts[k]!};
+}
+
+/// The port a datastore of each type listens on, for a URL that leaves it out.
+const _defaultPorts = {
+  'postgres': '5432',
+  'redis': '6379',
+  'mysql': '3306',
+  'mariadb': '3306',
+  'mongo': '27017',
+  'rabbitmq': '5672',
+  'elasticsearch': '9200',
+  'meilisearch': '7700',
+};
+
+/// What the URL of a datastore of [type] looks like, for the install dialog.
+String serviceUrlExample(String type) => switch (type) {
+      'postgres' => 'postgres://user:password@host:5432/db',
+      'redis' => 'redis://:password@host:6379',
+      'mysql' || 'mariadb' => 'mysql://user:password@host:3306/db',
+      'mongo' => 'mongodb://user:password@host:27017/db',
+      'rabbitmq' => 'amqp://user:password@host:5672/vhost',
+      'elasticsearch' => 'http://host:9200',
+      'meilisearch' => 'http://host:7700',
+      _ => 'scheme://user:password@host:port/db',
+    };
+
+/// Whether [url] can stand in for what a link sets: a scheme and a host, and
+/// no whitespace.
+bool looksLikeServiceUrl(String url) {
+  final u = url.trim();
+  if (u.contains(RegExp(r'\s'))) return false;
+  final parsed = Uri.tryParse(u);
+  return parsed != null && parsed.hasScheme && parsed.host.isNotEmpty;
+}
 
 /// What the user decided in the install dialog.
 class InstallChoices {
@@ -373,6 +762,7 @@ class InstallChoices {
     required this.services,
     this.settings = const {},
     this.memory = '',
+    this.urls = const {},
     required this.secrets,
   });
 
@@ -396,8 +786,14 @@ class InstallChoices {
   /// A `resource:limit --memory` value, or empty for none.
   final String memory;
 
+  /// By service type: the URL of a datastore running elsewhere, used instead
+  /// of provisioning one with the plugin. Empty means provision.
+  final Map<String, String> urls;
+
   /// Generated values, by variable.
   final Map<String, String> secrets;
+
+  String urlOf(String type) => (urls[type] ?? '').trim();
 
   InstallChoices copyWith({
     String? app,
@@ -409,6 +805,7 @@ class InstallChoices {
     Set<String>? services,
     Map<String, String>? settings,
     String? memory,
+    Map<String, String>? urls,
   }) =>
       InstallChoices(
         app: app ?? this.app,
@@ -420,6 +817,7 @@ class InstallChoices {
         services: services ?? this.services,
         settings: settings ?? this.settings,
         memory: memory ?? this.memory,
+        urls: urls ?? this.urls,
         secrets: secrets,
       );
 }
@@ -446,22 +844,27 @@ final _placeholder = RegExp(r'\{(\w+)\}');
 /// Replaces `{name}` with [values], leaving unknown names as they are.
 String fill(String text, Map<String, String> values) => text.replaceAllMapped(_placeholder, (m) => values[m[1]] ?? m[0]!);
 
-/// The variables an app expects, from the URL a link set:
-/// `postgres://user:password@host:5432/database`.
+/// The variables an app expects, from the URL a link set, or one the user
+/// gave: `postgres://user:password@host:5432/database`. A query the template
+/// adds to `{url}`, such as sslmode=disable for the plugin's service, gives
+/// way to the one the URL brings.
 Map<String, String> deriveEnv(TemplateService s, String url) {
   final trimmed = url.trim();
+  final hasQuery = trimmed.contains('?');
   final u = Uri.tryParse(trimmed);
   final info = (u?.userInfo ?? '').split(':');
   final values = {
     'url': trimmed,
     'host': u?.host ?? '',
-    'port': u == null || !u.hasPort ? '' : '${u.port}',
+    'port': u == null || !u.hasPort ? _defaultPorts[s.type] ?? '' : '${u.port}',
     'user': Uri.decodeComponent(info.first),
     'password': info.length > 1 ? Uri.decodeComponent(info.sublist(1).join(':')) : '',
     'database': Uri.decodeComponent((u?.path ?? '').replaceFirst('/', '')),
   };
-  return {for (final e in s.env.entries) e.key: fill(e.value, values)};
+  return {for (final e in s.env.entries) e.key: fill(hasQuery ? e.value.replaceAll(_urlQuery, '{url}') : e.value, values)};
 }
+
+final _urlQuery = RegExp(r'\{url\}\?\S*');
 
 /// `config:set` with every value base64-encoded, so that quotes, spaces and
 /// line breaks arrive intact, and without a restart: the app is not deployed yet.
@@ -499,7 +902,8 @@ class LinkStep extends PlanStep {
 }
 
 class InstallPlan {
-  const InstallPlan(this.template, this.choices, {required this.domain, required this.url, required this.env, required this.steps});
+  const InstallPlan(this.template, this.choices,
+      {required this.domain, required this.url, required this.env, required this.steps, this.hidden = const {}});
   final AppTemplate template;
   final InstallChoices choices;
 
@@ -509,6 +913,10 @@ class InstallPlan {
 
   /// What `config:set` sets before the deploy, decoded.
   final Map<String, String> env;
+
+  /// The keys of [env] the preview masks: secrets, and what a datastore URL
+  /// carries.
+  final Set<String> hidden;
   final List<PlanStep> steps;
 
   String get app => choices.app;
@@ -521,7 +929,8 @@ class InstallPlan {
 }
 
 /// Every command an install runs, in order. [defaultDomain] is what the host
-/// gives the app when no domain is chosen.
+/// gives the app when no domain is chosen. A service the user gave a URL for
+/// is neither created nor linked: its variables go into the config:set.
 InstallPlan planInstall(AppTemplate t, InstallChoices c, {required String defaultDomain}) {
   final app = c.app;
   final custom = c.domain.trim();
@@ -535,10 +944,21 @@ InstallPlan planInstall(AppTemplate t, InstallChoices c, {required String defaul
       for (final k in s.keys)
         if ((c.settings[s.id] ?? s.value).trim().isNotEmpty) k: (c.settings[s.id] ?? s.value).trim(),
     for (final k in t.secrets) k: c.secrets[k] ?? '',
+    for (final s in t.services)
+      if (c.services.contains(s.type) && c.urlOf(s.type).isNotEmpty) ...{s.from: c.urlOf(s.type), ...deriveEnv(s, c.urlOf(s.type))},
     if (t.startCommand != null) 'DOKKU_DOCKERFILE_START_CMD': t.startCommand!,
   };
+  final hidden = <String>{
+    ...t.secrets,
+    for (final s in t.services)
+      if (c.services.contains(s.type) && c.urlOf(s.type).isNotEmpty) ...[
+        s.from,
+        for (final e in s.env.entries)
+          if (e.value.contains('{url}') || e.value.contains('{password}')) e.key,
+      ],
+  };
   final memory = c.memory.trim();
-  return InstallPlan(t, c, domain: domain, url: url, env: env, steps: [
+  return InstallPlan(t, c, domain: domain, url: url, env: env, hidden: hidden, steps: [
     RunStep(['apps:create', app]),
     for (final m in t.mounts)
       if (c.mounts.contains(m.name)) ...[
@@ -553,7 +973,7 @@ InstallPlan planInstall(AppTemplate t, InstallChoices c, {required String defaul
     if (custom.isNotEmpty) RunStep(['domains:set', app, domain]),
     if (memory.isNotEmpty) RunStep(['resource:limit', '--memory', memory, app]),
     for (final s in t.services)
-      if (c.services.contains(s.type)) ...[
+      if (c.services.contains(s.type) && c.urlOf(s.type).isEmpty) ...[
         RunStep(['${s.type}:create', '$app-${s.suffix}'], timeout: const Duration(minutes: 20)),
         LinkStep(s, '$app-${s.suffix}', app),
       ],
@@ -568,10 +988,11 @@ InstallPlan planInstall(AppTemplate t, InstallChoices c, {required String defaul
 
 const _mask = '•••';
 
-/// The commands as they will run, for reading: config values decoded, secrets
-/// and passwords hidden, and the variables a link provides marked as such.
+/// The commands as they will run, for reading: config values decoded, secrets,
+/// datastore URLs and passwords hidden, and the variables a link provides
+/// marked as such.
 String describePlan(InstallPlan p) {
-  final secret = {...p.template.secrets};
+  final secret = p.hidden;
   final lines = <String>[];
   for (final s in p.steps) {
     if (s.args.first == 'config:set') {
@@ -597,7 +1018,11 @@ List<String> installProblems(AppTemplate t, InstallChoices c, {required Set<Stri
       if (!appNamePattern.hasMatch(c.app)) 'Name the app with lowercase letters, digits and dashes.',
       if (apps.contains(c.app)) 'An app named ${c.app} already exists.',
       for (final s in t.services)
-        if (c.services.contains(s.type) && !plugins.contains(s.type)) 'The ${s.type} plugin is not installed.',
+        if (c.services.contains(s.type) && c.urlOf(s.type).isEmpty && !plugins.contains(s.type))
+          'The ${s.type} plugin is not installed. Install it, or give the URL of one running elsewhere.',
+      for (final s in t.services)
+        if (c.services.contains(s.type) && c.urlOf(s.type).isNotEmpty && !looksLikeServiceUrl(c.urlOf(s.type)))
+          'The ${s.type} URL needs a scheme and a host, like ${serviceUrlExample(s.type)}.',
       if (c.letsencrypt && !plugins.contains('letsencrypt')) 'The letsencrypt plugin is not installed.',
       if (c.letsencrypt && !_email.hasMatch(c.email.trim())) "Let's Encrypt needs an email address.",
       if (c.domain.trim().isNotEmpty && !_domain.hasMatch(c.domain.trim())) 'That does not look like a domain.',

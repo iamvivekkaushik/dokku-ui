@@ -72,6 +72,27 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('the category list filters the grid, together with the text filter', (tester) async {
+      await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost);
+      expect(find.text('All · ${templates.length}'), findsOneWidget);
+      await _press(tester, find.text('Monitoring & alerts · 3'));
+      expect(find.text('Uptime Kuma'), findsOneWidget);
+      expect(find.text('Gotify'), findsOneWidget);
+      expect(find.text('ntfy'), findsOneWidget);
+      expect(find.text('n8n'), findsNothing);
+      await _type(tester, _field('Filter templates'), 'push');
+      expect(find.text('Gotify'), findsOneWidget);
+      expect(find.text('Uptime Kuma'), findsNothing);
+      await _type(tester, _field('Filter templates'), 'n8n');
+      expect(find.textContaining('No templates match'), findsOneWidget, reason: 'n8n is not in this category');
+      await _press(tester, find.text('All · ${templates.length}'));
+      expect(find.textContaining('No templates match'), findsNothing);
+      expect(find.text('Uptime Kuma'), findsNothing, reason: 'the text filter still applies');
+      await _type(tester, _field('Filter templates'), '');
+      expect(find.text('Uptime Kuma'), findsOneWidget);
+      await finish(tester);
+    });
+
     testAtAllSizes('the install dialog shows what will run and follows every choice', (tester, size) async {
       await pumpScreen(tester, StoreScreen(host: rootHost), size: size, host: rootHost);
       await _press(tester, find.byKey(const ValueKey('install-n8n')));
@@ -91,9 +112,23 @@ void main() {
       expect(_preview(tester), contains('domains:set n8n flows.example.com'));
       expect(_preview(tester), contains('WEBHOOK_URL=http://flows.example.com/'));
 
-      // Only redis is installed on the fixture host, so PostgreSQL cannot be turned on.
-      expect(tester.widget<AppSwitch>(_switch('PostgreSQL')).onChanged, isNull);
+      // Only redis is installed on the fixture host: PostgreSQL goes on all the same, for one running elsewhere.
       expect(find.textContaining('The postgres plugin is not installed.'), findsOneWidget);
+      await _press(tester, _switch('PostgreSQL'));
+      expect(find.widgetWithText(Btn, 'Install plugin'), findsOneWidget);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install n8n')).onPressed, isNull, reason: 'neither plugin nor URL');
+      await _type(tester, _field('postgres://user:password@host:5432/db'), 'postgres://n8n:s3cret@db.example.com:5432/n8n');
+      expect(find.widgetWithText(Btn, 'Install plugin'), findsNothing);
+      expect(_preview(tester), contains('DATABASE_URL=•••'));
+      expect(_preview(tester), contains('DB_POSTGRESDB_HOST=db.example.com'));
+      expect(_preview(tester), isNot(contains('postgres:create')));
+      expect(_preview(tester), isNot(contains('s3cret')));
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install n8n')).onPressed, isNotNull);
+      await _type(tester, _field('postgres://user:password@host:5432/db'), 'db.example.com:5432');
+      expect(find.textContaining('scheme and a host'), findsWidgets);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install n8n')).onPressed, isNull);
+      await _press(tester, _switch('PostgreSQL'));
+      expect(find.text('PostgreSQL URL'), findsNothing);
       expect(tester.widget<AppSwitch>(_switch("Let's Encrypt certificate")).onChanged, isNull);
 
       await _type(tester, find.widgetWithText(TextField, 'n8n'), 'demo-app');
@@ -155,6 +190,31 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a datastore running elsewhere is set from its URL and needs no plugin', (tester) async {
+      final ssh = await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost);
+      await _press(tester, find.byKey(const ValueKey('install-umami')));
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install Umami')).onPressed, isNull, reason: 'no postgres plugin on the fixture host');
+      await _type(tester, _field('postgres://user:password@host:5432/db'), 'postgres://umami:s3cret@db.example.com:5432/umami');
+      expect(find.widgetWithText(Btn, 'Install plugin'), findsNothing);
+      expect(find.textContaining('Nothing is provisioned'), findsOneWidget);
+      expect(_preview(tester), contains('DATABASE_URL=•••'));
+      expect(_preview(tester), isNot(contains('postgres:create')));
+      await _press(tester, find.widgetWithText(Btn, 'Install Umami'));
+      await settle(tester, frames: 30);
+      expect(_joined(ssh), [
+        'apps:create umami',
+        'config:set',
+        'ports:set umami http:80:3000',
+        'git:from-image umami docker.umami.is/umami-software/umami:postgresql-latest',
+      ]);
+      final env = _decode(ssh.changes.firstWhere((c) => c.first == 'config:set'));
+      expect(env['DATABASE_URL'], 'postgres://umami:s3cret@db.example.com:5432/umami');
+      expect(env['APP_SECRET'], hasLength(64));
+      expect(ssh.ran.map((c) => c.join(' ')), isNot(contains('config:get umami DATABASE_URL')));
+      expect(find.text('Umami is up'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('a failure stops the install where it is', (tester) async {
       final ssh = await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost, answers: {'ports:set n8n http:80:5678': failed(' !     nope\n')});
       await _press(tester, find.byKey(const ValueKey('install-n8n')));
@@ -169,7 +229,7 @@ void main() {
     testWidgets('a required plugin that is missing blocks the install, and root can add it from the dialog', (tester) async {
       final ssh = await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost);
       await _press(tester, find.byKey(const ValueKey('install-umami')));
-      expect(find.text('The postgres plugin is not installed.'), findsWidgets);
+      expect(find.textContaining('The postgres plugin is not installed.'), findsWidgets);
       expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install Umami')).onPressed, isNull);
       await _press(tester, find.widgetWithText(Btn, 'Install plugin'));
       expect(ssh.changes, [
@@ -180,7 +240,7 @@ void main() {
 
     testWidgets('a template without HTTP shows its ports and no HTTPS section', (tester) async {
       await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost);
-      expect(find.text('host ports'), findsOneWidget);
+      expect(find.text('host ports'), findsNWidgets(2), reason: 'RustDesk and Gitea');
       await _press(tester, find.byKey(const ValueKey('install-rustdesk')));
       expect(find.text("Let's Encrypt certificate"), findsNothing);
       expect(find.textContaining('Clients connect to this name.'), findsOneWidget);

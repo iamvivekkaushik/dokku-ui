@@ -27,10 +27,13 @@
 - **The whole of Dokku.** Apps, deploys and builders, processes and scaling,
   config, domains and certificates, ports, storage and networks, datastores,
   logs and events, SSH keys, plugins, install and upgrade.
-- **A store of templates.** n8n, Inngest, Outpost, Uptime Kuma, Umami,
-  Vaultwarden, Ghost and RustDesk install in one go from their official
-  images, with persistent storage, config, datastores and a domain set up the
-  Dokku way. Every command is shown first; the result is an ordinary app.
+- **A store of templates.** n8n, Node-RED, Windmill, Gitea, Keycloak,
+  Vaultwarden, Wiki.js, Docmost, Mattermost, Planka, Uptime Kuma, ntfy, Ghost
+  and a dozen more install in one go from their official images, with
+  persistent storage, config, datastores and a domain set up the Dokku way.
+  A datastore is provisioned with its plugin, or taken from wherever one
+  already runs, by URL. Every command is shown first; the result is an
+  ordinary app.
 - **Careful with what matters.** Host keys are pinned, secrets are masked in
   previews and logs, and destroying an app means typing its name after reading
   what will go.

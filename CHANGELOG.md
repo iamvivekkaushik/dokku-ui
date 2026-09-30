@@ -5,6 +5,22 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
+## Unreleased
+
+### Added
+
+- A Store install can take the URL of a PostgreSQL, Redis or other datastore
+  running elsewhere instead of provisioning one. The variable a link would
+  have set is set to it, the variables the app expects are derived from it,
+  and the plugin is not needed. Without a URL, a missing plugin still blocks
+  the install and offers to add it.
+- Fifteen more templates: Node-RED, Windmill, Gitea, Keycloak, Gotify, ntfy,
+  Wiki.js, Docmost, Memos, Miniflux, Vikunja, Planka, Mattermost, Open WebUI
+  and Excalidraw.
+- The Store lists its categories with a count each; picking one filters the
+  grid, together with the text filter. The categories are broader now:
+  Developer tools, Identity & passwords, Monitoring & alerts and so on.
+
 ## 1.3.0 - 2026-09-30
 
 ### Added

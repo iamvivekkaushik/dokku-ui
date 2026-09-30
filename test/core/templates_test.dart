@@ -51,6 +51,28 @@ void main() {
       }
     });
 
+    test('categories are listed in order with their counts', () {
+      final cats = templateCategories();
+      expect(cats.keys, cats.keys.toList()..sort());
+      expect(cats.values.reduce((a, b) => a + b), templates.length);
+      expect(cats['Automation'], 3, reason: 'n8n, Node-RED and Windmill');
+      for (final t in templates) {
+        expect(cats.keys, contains(t.category), reason: t.id);
+      }
+    });
+
+    test('the second batch is there, with what each needs', () {
+      for (final id in ['wikijs', 'docmost', 'miniflux', 'gotify', 'ntfy', 'node-red', 'memos', 'vikunja', 'planka', 'mattermost', 'gitea', 'keycloak', 'windmill', 'open-webui', 'excalidraw']) {
+        expect(templateOf(id), isNotNull, reason: id);
+      }
+      expect(templateOf('ntfy')?.startCommand, 'serve', reason: 'the image has ntfy as its entrypoint');
+      expect(templateOf('keycloak')?.startCommand, 'start');
+      expect(templateOf('gitea')?.publish, ['2222:2222']);
+      expect(templateOf('docmost')?.services.map((s) => s.type), ['postgres', 'redis']);
+      expect(templateOf('excalidraw')?.mounts, isEmpty);
+      expect(templateOf('mattermost')?.mounts.map((m) => m.owner).toSet(), {'paketo'}, reason: 'Mattermost runs as uid 2000');
+    });
+
     test('the three the store was asked for are there', () {
       expect(templateOf('n8n'), isNotNull);
       expect(templateOf('inngest')?.startCommand, 'inngest start');
@@ -144,6 +166,52 @@ void main() {
       expect(deriveEnv(mq, 'amqp://mq:p@dokku-rabbitmq-outpost-mq:5672/mq')['RABBITMQ_SERVER_URL'], 'amqp://mq:p@dokku-rabbitmq-outpost-mq:5672/mq');
     });
 
+    test('a datastore elsewhere is set from its URL: nothing created or linked, and the preview hides it', () {
+      final c = defaultChoices(n8n).copyWith(services: {'postgres'}, urls: {'postgres': ' postgres://n8n:s3cret@db.example.com:5432/n8n '});
+      final p = planInstall(n8n, c, defaultDomain: 'n8n.dokku.test');
+      expect(commandsOf(p), [
+        'apps:create n8n',
+        'storage:ensure-directory --chown heroku n8n-data',
+        'storage:mount n8n /var/lib/dokku/data/storage/n8n-data:/home/node/.n8n',
+        'config:set',
+        'ports:set n8n http:80:5678',
+        'git:from-image n8n docker.n8n.io/n8nio/n8n:latest',
+      ]);
+      expect(p.steps.whereType<LinkStep>(), isEmpty);
+      expect(p.env['DATABASE_URL'], 'postgres://n8n:s3cret@db.example.com:5432/n8n');
+      expect(p.env['DB_TYPE'], 'postgresdb');
+      expect(p.env['DB_POSTGRESDB_HOST'], 'db.example.com');
+      expect(p.env['DB_POSTGRESDB_USER'], 'n8n');
+      expect(p.env['DB_POSTGRESDB_PASSWORD'], 's3cret');
+      expect(p.hidden, containsAll(['N8N_ENCRYPTION_KEY', 'DATABASE_URL', 'DB_POSTGRESDB_PASSWORD']));
+      expect(p.hidden, isNot(contains('DB_POSTGRESDB_HOST')));
+      final text = describePlan(p);
+      expect(text, contains('DATABASE_URL=•••'));
+      expect(text, contains('DB_POSTGRESDB_PASSWORD=•••'));
+      expect(text, contains('DB_POSTGRESDB_HOST=db.example.com'));
+      expect(text, isNot(contains('s3cret')));
+      expect(text, isNot(contains('<from DATABASE_URL>')));
+    });
+
+    test('URLs and plugins mix per service, and a URL with a query keeps it', () {
+      final outpost = templateOf('outpost')!;
+      final c = defaultChoices(outpost).copyWith(urls: {'redis': 'redis://:p%40ss@cache.example.com:6379', 'postgres': ''});
+      final p = planInstall(outpost, c, defaultDomain: 'outpost.dokku.test');
+      expect(commandsOf(p),
+          containsAllInOrder(['postgres:create outpost-db', 'postgres:link outpost-db outpost --no-restart', 'rabbitmq:create outpost-mq']));
+      expect(commandsOf(p), isNot(contains('redis:create outpost-redis')));
+      expect(p.env['REDIS_URL'], 'redis://:p%40ss@cache.example.com:6379');
+      expect(p.env['REDIS_HOST'], 'cache.example.com');
+      expect(p.env['REDIS_PASSWORD'], 'p@ss');
+      expect(p.hidden, containsAll(['REDIS_URL', 'REDIS_PASSWORD', 'API_KEY']));
+      final pg = outpost.services.first;
+      expect(deriveEnv(pg, 'postgres://u:p@db.example.com:5432/d?sslmode=require')['POSTGRES_URL'], 'postgres://u:p@db.example.com:5432/d?sslmode=require',
+          reason: 'the query the template adds for the plugin service gives way to the one the URL has');
+      final kc = templateOf('keycloak')!.services.single;
+      expect(deriveEnv(kc, 'postgres://kc:p@db.example.com/keycloak')['KC_DB_URL'], 'jdbc:postgresql://db.example.com:5432/keycloak',
+          reason: 'a URL without a port gets the default of its type');
+    });
+
     test('a start command goes through DOKKU_DOCKERFILE_START_CMD', () {
       final t = templateOf('inngest')!;
       final p = planInstall(t, defaultChoices(t), defaultDomain: 'inngest.dokku.test');
@@ -212,7 +280,14 @@ void main() {
       final umami = templateOf('umami')!;
       final c = defaultChoices(umami);
       expect(installProblems(umami, c, plugins: {'postgres'}, apps: []), isEmpty);
-      expect(installProblems(umami, c, plugins: {}, apps: []), ['The postgres plugin is not installed.']);
+      expect(installProblems(umami, c, plugins: {}, apps: []),
+          ['The postgres plugin is not installed. Install it, or give the URL of one running elsewhere.']);
+      const elsewhere = {'postgres': 'postgres://umami:s3cret@db.example.com:5432/umami'};
+      expect(installProblems(umami, c.copyWith(urls: elsewhere), plugins: {}, apps: []), isEmpty, reason: 'a URL needs no plugin');
+      expect(installProblems(umami, c.copyWith(urls: {'postgres': 'db.example.com:5432'}), plugins: {}, apps: []),
+          ['The postgres URL needs a scheme and a host, like postgres://user:password@host:5432/db.']);
+      expect(installProblems(umami, c.copyWith(urls: {'postgres': '  '}), plugins: {}, apps: []).single, contains('plugin is not installed'),
+          reason: 'blank means provision');
       expect(installProblems(umami, c.copyWith(app: 'Bad Name'), plugins: {'postgres'}, apps: []).first, contains('lowercase'));
       expect(installProblems(umami, c, plugins: {'postgres'}, apps: ['umami']).first, contains('already exists'));
       expect(installProblems(umami, c.copyWith(letsencrypt: true), plugins: {'postgres'}, apps: []),
@@ -221,6 +296,17 @@ void main() {
       expect(installProblems(umami, c.copyWith(domain: 'nope'), plugins: {'postgres'}, apps: []).first, contains('domain'));
       expect(installProblems(umami, c.copyWith(memory: 'lots'), plugins: {'postgres'}, apps: []).first, contains('Memory'));
       expect(installProblems(umami, c.copyWith(memory: '512m', domain: 'stats.example.com'), plugins: {'postgres'}, apps: []), isEmpty);
+    });
+
+    test('a datastore URL needs a scheme and a host', () {
+      for (final ok in ['postgres://u:p@h:5432/d', 'redis://:p@h:6379', 'mongodb+srv://u:p@cluster.example.com/db', ' http://host:7700 ']) {
+        expect(looksLikeServiceUrl(ok), isTrue, reason: ok);
+      }
+      for (final bad in ['', 'h:5432', 'postgres://', 'postgres://u:p@h a/d', 'db.example.com/d']) {
+        expect(looksLikeServiceUrl(bad), isFalse, reason: bad);
+      }
+      expect(serviceUrlExample('redis'), 'redis://:password@host:6379');
+      expect(serviceUrlExample('mariadb'), startsWith('mysql://'));
     });
   });
 }
