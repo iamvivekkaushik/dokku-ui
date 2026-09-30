@@ -5,6 +5,16 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
+## Unreleased
+
+### Added
+
+- The Environment tab filters variables by key or value as you type, with a
+  hidden value matching but staying masked. Each key has a copy button and
+  can be selected. Export has a Copy button next to it that puts the
+  variables on the clipboard in the chosen format; both take the variables
+  listed, so a filter narrows what goes out.
+
 ## 1.5.0 - 2026-09-30
 
 ### Added

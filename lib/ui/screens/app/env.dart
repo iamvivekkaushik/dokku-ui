@@ -73,6 +73,7 @@ class EnvTab extends ConsumerStatefulWidget {
 class _EnvTabState extends ConsumerState<EnvTab> with Busy {
   final _newKey = TextEditingController();
   final _newValue = TextEditingController();
+  final _filter = TextEditingController();
 
   /// Values added or changed here and not saved yet.
   final _pending = <String, String>{};
@@ -106,6 +107,7 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
   void dispose() {
     _newKey.dispose();
     _newValue.dispose();
+    _filter.dispose();
     super.dispose();
   }
 
@@ -186,16 +188,20 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
     }
   }
 
-  Future<void> _export(List<_Var> rows) async {
-    setState(() => _problem = null);
+  /// [rows] in the chosen format, for a file or the clipboard.
+  String _exportText(List<_Var> rows) {
     final vars = {for (final r in rows) r.key: r.value};
-    final text = switch (_format) {
+    return switch (_format) {
       _Format.json => const JsonEncoder.withIndent('  ').convert(vars),
       _Format.env => [for (final e in vars.entries) '${e.key}=${envQuote(e.value)}\n'].join(),
       _Format.shell => [for (final e in vars.entries) 'export ${e.key}=${envQuote(e.value)}\n'].join(),
     };
+  }
+
+  Future<void> _export(List<_Var> rows) async {
+    setState(() => _problem = null);
     try {
-      await saveTextFile('${widget.app}.${_format == _Format.json ? 'json' : 'env'}', text);
+      await saveTextFile('${widget.app}.${_format == _Format.json ? 'json' : 'env'}', _exportText(rows));
     } on Object catch (e) {
       if (mounted) setState(() => _problem = 'Could not save the file. $e');
     }
@@ -245,11 +251,14 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
     final server = _server = env.data ?? const {};
     final merged = {...server, ..._pending};
     final toSet = _toSet, toUnset = _toUnset;
-    final rows = [
+    final all = [
       for (final k in merged.keys.toList()..sort())
         if (!_removed.contains(k) && (_showSystem || !_systemKeys.contains(k)))
           _Var(k, merged[k]!, isNew: !server.containsKey(k), edited: server.containsKey(k) && toSet.containsKey(k)),
     ];
+    final query = _filter.text.trim(), q = query.toLowerCase();
+    // A hidden value matches too, so a variable can be found by what it holds; it stays masked.
+    final rows = q.isEmpty ? all : [for (final v in all) if (v.key.toLowerCase().contains(q) || v.value.toLowerCase().contains(q)) v];
     final dirty = toSet.isNotEmpty || toUnset.isNotEmpty;
     final newKey = _newKey.text.trim();
     final keyOk = _validKey.hasMatch(newKey);
@@ -269,9 +278,12 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
 
       Widget keyCell(_Var v) => Row(children: [
             if (v.secret) ...[const Icon(LucideIcons.lock, size: 11, color: C.muted), const SizedBox(width: 8)],
-            Flexible(child: Text(v.key, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.mono(12))),
+            // Selectable for a drag or a long press; the button next to it copies the whole key at once.
+            Flexible(child: SelectionArea(child: Text(v.key, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.mono(12)))),
+            const SizedBox(width: 2),
+            CopyBtn(v.key, tooltip: 'Copy key'),
             if (v.staged) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               Pill(v.isNew ? 'new' : 'edited', tone: Tone.info, dot: false),
             ],
           ]);
@@ -302,8 +314,8 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
       List<Widget> actions(_Var v) => [
             if (v.secret && !_keysOnly)
               IconBtn(shown(v) ? LucideIcons.eyeOff : LucideIcons.eye,
-                  tooltip: shown(v) ? 'Hide value' : 'Reveal value', onPressed: () => _toggleReveal(v, rows)),
-            CopyBtn(v.value),
+                  tooltip: shown(v) ? 'Hide value' : 'Reveal value', onPressed: () => _toggleReveal(v, all)),
+            CopyBtn(v.value, tooltip: 'Copy value'),
             IconBtn(LucideIcons.x, tooltip: 'Delete variable', danger: true, onPressed: () => _delete(v.key)),
           ];
 
@@ -340,11 +352,23 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
 
       return Panel.column(children: [
         PanelHead(
-          env.hasData ? 'Config vars · ${rows.length}' : 'Config vars',
+          !env.hasData
+              ? 'Config vars'
+              : q.isEmpty
+                  ? 'Config vars · ${all.length}'
+                  : 'Config vars · ${rows.length} of ${all.length}',
           trailing: Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            // On a phone the filter gets a line to itself.
+            SizedBox(
+              width: stacked ? double.infinity : 180,
+              child: AppInput(controller: _filter, mono: false, hint: 'Filter keys and values', onChanged: (_) => setState(() {})),
+            ),
             Btn('Import .env', onPressed: env.hasData ? _import : null),
+            // Both take the variables listed, so a filter narrows what goes out.
             Row(mainAxisSize: MainAxisSize.min, children: [
-              Btn('Export', onPressed: env.hasData ? () => _export(rows) : null),
+              Btn('Export', tooltip: 'Saves the variables listed as a file.', onPressed: env.hasData ? () => _export(rows) : null),
+              const SizedBox(width: 4),
+              CopyBtn(_exportText(rows), label: 'Copy', tooltip: 'Copies the variables listed to the clipboard.', enabled: env.hasData),
               const SizedBox(width: 4),
               Seg<_Format>(
                 value: _format,
@@ -383,9 +407,11 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
         if (env.loading) const LoadingRows(),
         if (env.error != null) EmptyBox('Could not read the config vars. ${env.errorText}'),
         if (env.hasData && rows.isEmpty)
-          EmptyBox(toUnset.isEmpty
-              ? 'No config vars set. Add one below or import a .env file.'
-              : 'Every variable is marked for removal. Save changes to unset them, or undo.'),
+          EmptyBox(all.isNotEmpty
+              ? 'No variables match “$query”.'
+              : toUnset.isEmpty
+                  ? 'No config vars set. Add one below or import a .env file.'
+                  : 'Every variable is marked for removal. Save changes to unset them, or undo.'),
         for (final v in rows) row(v),
         if (toUnset.isNotEmpty)
           PanelRow(

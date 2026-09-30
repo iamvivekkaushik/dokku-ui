@@ -227,10 +227,14 @@ class IconBtn extends StatelessWidget {
 
 /// Copies [text] and briefly confirms it.
 class CopyBtn extends StatefulWidget {
-  const CopyBtn(this.text, {super.key, this.label, this.size = BtnSize.sm});
+  const CopyBtn(this.text, {super.key, this.label, this.size = BtnSize.sm, this.tooltip, this.enabled = true});
   final String text;
   final String? label;
   final BtnSize size;
+
+  /// Says what is copied, where several things on a row can be.
+  final String? tooltip;
+  final bool enabled;
 
   @override
   State<CopyBtn> createState() => _CopyBtnState();
@@ -250,11 +254,12 @@ class _CopyBtnState extends State<CopyBtn> {
   @override
   Widget build(BuildContext context) {
     final label = widget.label;
+    final onPressed = widget.enabled ? _copy : null;
     if (label == null) {
       return IconBtn(_done ? LucideIcons.check : LucideIcons.copy,
-          tooltip: _done ? 'Copied' : 'Copy', onPressed: _copy, color: _done ? C.ok : null);
+          tooltip: _done ? 'Copied' : widget.tooltip ?? 'Copy', onPressed: onPressed, color: _done ? C.ok : null);
     }
-    return Btn(_done ? 'Copied' : label, onPressed: _copy, size: widget.size);
+    return Btn(_done ? 'Copied' : label, onPressed: onPressed, size: widget.size, tooltip: widget.tooltip);
   }
 }
 

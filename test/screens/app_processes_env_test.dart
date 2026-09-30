@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:dokku_console/data/models.dart';
 import 'package:dokku_console/ui/screens/app/env.dart';
@@ -8,6 +7,7 @@ import 'package:dokku_console/ui/shell/terminal.dart';
 import 'package:dokku_console/ui/widgets/kit.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/harness.dart';
@@ -42,6 +42,17 @@ Future<void> _type(WidgetTester tester, Finder field, String text) async {
 }
 
 String _b64(String value) => base64.encode(utf8.encode(value));
+
+/// Replaces the clipboard with a callback for what was last copied.
+String? Function() _clipboard(WidgetTester tester) {
+  String? copied;
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+    if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+    return null;
+  });
+  addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+  return () => copied;
+}
 
 final class _PickedFile extends PlatformFile {
   _PickedFile(this.name, this.text);
@@ -895,6 +906,84 @@ void main() {
       expect(json['GREETING'], "it's here");
       expect(json['DOKKU_APP_TYPE'], 'dockerfile');
       expect(json, hasLength(10));
+      await finish(tester);
+    });
+
+    testAtAllSizes('the list is filtered by key or value as you type', (tester, size) async {
+      await pumpScreen(tester, _env(), size: size);
+      await add(tester, 'REDIS_TTL', '60');
+      final filter = _input('Filter keys and values');
+
+      await _type(tester, filter, 'redis');
+      expect(find.text('Config vars · 2 of 6'), findsOneWidget);
+      expect(find.text('REDIS_URL'), findsOneWidget);
+      expect(find.text('REDIS_TTL'), findsOneWidget, reason: 'a staged variable is searched like the rest');
+      expect(find.text('LOG_LEVEL'), findsNothing);
+
+      await _type(tester, filter, 'PRODUCTION');
+      expect(find.text('Config vars · 1 of 6'), findsOneWidget);
+      expect(find.text('NODE_ENV'), findsOneWidget, reason: 'values match too, whatever the case');
+      expect(find.text('REDIS_URL'), findsNothing);
+
+      await _type(tester, filter, 's3cret');
+      expect(find.text('DATABASE_URL'), findsOneWidget, reason: 'a hidden value still matches');
+      expect(find.text(_masked), findsOneWidget);
+      expect(find.text('postgres://app:s3cret@db.internal:5432/app'), findsNothing, reason: 'and stays hidden');
+
+      await _type(tester, filter, 'nothing like this');
+      expect(find.text('No variables match “nothing like this”.'), findsOneWidget);
+      expect(find.text('Add variable'), findsOneWidget, reason: 'variables can still be added');
+      expect(save(tester).onPressed, isNotNull, reason: 'the staged variable is not lost');
+
+      await _type(tester, filter, '');
+      expect(find.text('Config vars · 6'), findsOneWidget);
+      expect(find.text('LOG_LEVEL'), findsOneWidget);
+    });
+
+    testWidgets('a key or a value is copied with one click', (tester) async {
+      final copied = _clipboard(tester);
+      await pumpScreen(tester, _env());
+
+      await _press(tester, _inRow('LOG_LEVEL', find.byTooltip('Copy key')));
+      expect(copied(), 'LOG_LEVEL');
+      expect(find.ancestor(of: find.text('LOG_LEVEL'), matching: find.byType(SelectionArea)), findsOneWidget,
+          reason: 'the key can also be selected');
+
+      await _press(tester, _inRow('DATABASE_URL', find.byTooltip('Copy value')));
+      expect(copied(), 'postgres://app:s3cret@db.internal:5432/app', reason: 'a hidden value is copied without being shown');
+      expect(find.textContaining('s3cret'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('exports to the clipboard in the chosen format, and only what is listed', (tester) async {
+      final copied = _clipboard(tester);
+      await pumpScreen(tester, _env());
+      final copy = find.widgetWithText(Btn, 'Copy');
+
+      await _press(tester, copy);
+      final env = copied()!.split('\n');
+      expect(env, contains('DATABASE_URL=postgres://app:s3cret@db.internal:5432/app'));
+      expect(env, contains('LOG_LEVEL=info'));
+      expect(env.where((l) => l.startsWith('GIT_REV')), isEmpty, reason: 'system variables are hidden');
+      expect(env.last, isEmpty, reason: 'ends with a line break');
+      expect(find.widgetWithText(Btn, 'Copied'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      expect(copy, findsOneWidget);
+
+      await _press(tester, find.text('shell'));
+      await _press(tester, copy);
+      expect(copied()!.split('\n'), contains('export LOG_LEVEL=info'));
+      await tester.pump(const Duration(seconds: 2));
+
+      await _press(tester, find.text('json'));
+      await _type(tester, _input('Filter keys and values'), 'redis');
+      await _press(tester, copy);
+      final json = jsonDecode(copied()!) as Map<String, dynamic>;
+      expect(json.keys, ['REDIS_URL']);
+      expect(json['REDIS_URL'], startsWith('redis://'));
+
+      await _press(tester, find.text('Export'));
+      expect(jsonDecode(files.saved['demo-app.json']!), hasLength(1), reason: 'the file follows the filter as well');
       await finish(tester);
     });
   });
