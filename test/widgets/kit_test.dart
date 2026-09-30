@@ -117,6 +117,25 @@ void main() {
     expect(tester.getSize(find.byType(Panel).first).width, closeTo((800 - 16) / 2, 1));
   });
 
+  testWidgets('a grid with a maximum width widens a few cards only up to it', (tester) async {
+    Widget grid(int cards, {double? maxWidth}) => AutoGrid(
+        minWidth: 150, maxWidth: maxWidth, children: [for (var i = 0; i < cards; i++) Panel(child: SizedBox(height: 40, child: Text('card $i')))]);
+    double width() => tester.getSize(find.byType(Panel).first).width;
+
+    // Four columns fit; two cards share the row when they may be this wide.
+    await pump(tester, grid(2, maxWidth: 400));
+    expect(width(), closeTo((800 - 16) / 2, 1));
+    // A tighter cap keeps a third, empty column.
+    await pump(tester, grid(2, maxWidth: 300));
+    expect(width(), closeTo((800 - 2 * 16) / 3, 1));
+    // One card is not stretched across the row either.
+    await pump(tester, grid(1, maxWidth: 400));
+    expect(width(), closeTo((800 - 16) / 2, 1));
+    // A full row is laid out as usual.
+    await pump(tester, grid(4, maxWidth: 400));
+    expect(width(), closeTo((800 - 3 * 16) / 4, 1));
+  });
+
   testWidgets('a fitted grid balances its rows and widens a shorter last row', (tester) async {
     Widget grid(int cards) => SingleChildScrollView(
           child: AutoGrid(

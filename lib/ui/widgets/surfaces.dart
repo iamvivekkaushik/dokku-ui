@@ -402,18 +402,29 @@ class PageBody extends StatelessWidget {
   }
 }
 
-/// Lays children out in as many equal columns as fit, like CSS auto-fit.
+/// Lays children out in as many equal columns as fit, like CSS
+/// `repeat(auto-fill, minmax(minWidth, 1fr))`.
+///
+/// A row of cards is made equally tall by measuring their intrinsic height,
+/// which a [LayoutBuilder] cannot report: a card that adapts to its width
+/// needs a layout delegate or render object instead.
 class AutoGrid extends StatelessWidget {
   const AutoGrid({
     super.key,
     required this.children,
     this.minWidth = 220,
+    this.maxWidth,
     this.gap = 16,
     this.equalHeight = true,
     this.fit = false,
   });
   final List<Widget> children;
   final double minWidth;
+
+  /// When there are fewer children than columns, they widen to share the row
+  /// instead of leaving empty columns, but not past this width: one card does
+  /// not turn into a banner. Null keeps the empty columns.
+  final double? maxWidth;
   final double gap;
   final bool equalHeight;
 
@@ -429,6 +440,10 @@ class AutoGrid extends StatelessWidget {
         if (fit && children.isNotEmpty) {
           final rowCount = (children.length / room).ceil();
           cols = (children.length / rowCount).ceil();
+        } else if (maxWidth != null && children.length < room) {
+          // The fewest columns that keep every child within maxWidth.
+          final least = ((box.maxWidth + gap) / (maxWidth! + gap)).ceil();
+          cols = math.max(children.length, math.min(least, room));
         }
         final rows = <Widget>[];
         for (var i = 0; i < children.length; i += cols) {

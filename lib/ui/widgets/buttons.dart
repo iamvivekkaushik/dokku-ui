@@ -67,14 +67,48 @@ class Btn extends StatelessWidget {
   /// As wide as it is tall, for a button that is only an icon.
   final bool square;
 
-  @override
-  Widget build(BuildContext context) {
+  /// Height, side padding, font size and corner radius of a button of [size].
+  static (double height, double hPad, double font, double radius) _metrics(BuildContext context, BtnSize size) {
     final pad = touchPad(context);
-    final (double height, double hPad, double font, double radius) = switch (size) {
+    return switch (size) {
       BtnSize.xs => (24 + pad, 8, 11, 6),
       BtnSize.sm => (28 + pad, 10, 12, 7),
       BtnSize.md => (32 + pad, 12, 12.5, 8),
     };
+  }
+
+  /// How tall a button of [size] is here; a square one is as wide.
+  static double heightOf(BuildContext context, [BtnSize size = BtnSize.sm]) => _metrics(context, size).$1;
+
+  TextStyle _textStyle(double font) {
+    final weight = switch (variant) {
+      BtnVariant.primary || BtnVariant.destructive => FontWeight.w600,
+      BtnVariant.outline || BtnVariant.danger => FontWeight.w500,
+      _ => FontWeight.w400,
+    };
+    return mono ? T.mono(font - .5, weight: weight) : T.sans(font, weight: weight);
+  }
+
+  /// The narrowest width that shows the whole label, for a layout that decides
+  /// how many buttons fit side by side. The spinner that stands in for the icon
+  /// while loading is left out, so such a layout does not jump on a press.
+  double naturalWidth(BuildContext context) {
+    final (height, hPad, font, _) = _metrics(context, size);
+    if (square) return height;
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: _textStyle(font)),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final text = painter.width;
+    painter.dispose();
+    return 2 * hPad + (icon == null ? 0 : font + 1 + (label.isEmpty ? 0 : 7)) + text;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (height, hPad, font, radius) = _metrics(context, size);
     final enabled = onPressed != null && !loading;
 
     Color bg(Set<WidgetState> s) {
@@ -114,12 +148,6 @@ class Btn extends StatelessWidget {
       };
     }
 
-    final weight = switch (variant) {
-      BtnVariant.primary || BtnVariant.destructive => FontWeight.w600,
-      BtnVariant.outline || BtnVariant.danger => FontWeight.w500,
-      _ => FontWeight.w400,
-    };
-
     final child = Row(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -148,9 +176,7 @@ class Btn extends StatelessWidget {
         overlayColor: const WidgetStatePropertyAll(Colors.transparent),
         side: WidgetStateProperty.resolveWith(side),
         shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius))),
-        textStyle: WidgetStatePropertyAll(
-          mono ? T.mono(font - .5, weight: weight) : T.sans(font, weight: weight),
-        ),
+        textStyle: WidgetStatePropertyAll(_textStyle(font)),
         mouseCursor: WidgetStatePropertyAll(enabled ? SystemMouseCursors.click : SystemMouseCursors.forbidden),
       ),
       child: child,

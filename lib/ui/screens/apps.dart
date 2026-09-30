@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -59,7 +61,7 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
       ]),
       if (apps.hasError && !apps.hasValue) EmptyBox('Could not list apps: ${apps.error}', margin: EdgeInsets.zero),
       if (apps.isLoading && !apps.hasValue)
-        AutoGrid(minWidth: 300, children: [
+        _cardGrid([
           for (var i = 0; i < 3; i++)
             const Panel(
               padding: EdgeInsets.all(16),
@@ -100,11 +102,14 @@ class _AppsScreenState extends ConsumerState<AppsScreen> {
             Btn('Create app', icon: LucideIcons.plus, onPressed: () => showCreateApp(context, host)),
           ]),
         ),
-      if (list.isNotEmpty && grid) AutoGrid(minWidth: 300, children: [for (final a in list) _AppCard(host, a, key: ValueKey(a.name))]),
+      if (list.isNotEmpty && grid) _cardGrid([for (final a in list) _AppCard(host, a, key: ValueKey(a.name))]),
       if (list.isNotEmpty && !grid) _AppTable(host, list),
     ]);
   }
 }
+
+/// App cards: three across in a 1280 window, and a few widen to fill the row.
+AutoGrid _cardGrid(List<Widget> cards) => AutoGrid(minWidth: 300, maxWidth: 600, children: cards);
 
 class _AppCard extends ConsumerStatefulWidget {
   const _AppCard(this.host, this.app, {super.key});
@@ -124,11 +129,8 @@ class _AppCardState extends ConsumerState<_AppCard> with Busy {
     final remote = host.gitRemote(a.name);
     final undeployed = a.health == AppHealth.undeployed;
 
-    Widget action(String label, String key, List<String> args, {Confirm? ask, bool enabled = true}) => Expanded(
-          child: Btn(label,
-              loading: isBusy(key),
-              onPressed: enabled ? () => busy(key, () => runDokku(context, ref, host, args, ask: ask)) : null),
-        );
+    Btn action(String label, String key, List<String> args, {Confirm? ask, bool enabled = true}) => Btn(label,
+        loading: isBusy(key), onPressed: enabled ? () => busy(key, () => runDokku(context, ref, host, args, ask: ask)) : null);
 
     return Panel(
       padding: const EdgeInsets.all(16),
@@ -193,24 +195,98 @@ class _AppCardState extends ConsumerState<_AppCard> with Busy {
         const SizedBox(height: 12),
         Container(height: 1, color: C.lineSoft),
         const SizedBox(height: 12),
-        Row(children: [
+        _CardActions([
           action('Restart', 'restart', ['ps:restart', a.name], enabled: !undeployed),
-          const SizedBox(width: 6),
           action('Rebuild', 'rebuild', ['ps:rebuild', a.name], enabled: !undeployed),
-          const SizedBox(width: 6),
           if (a.health == AppHealth.stopped)
             action('Start', 'start', ['ps:start', a.name])
           else
             action('Stop', 'stop', ['ps:stop', a.name],
                 enabled: !undeployed, ask: Confirm(title: 'Stop ${a.name}?', body: stopConfirmBody, label: 'Stop app', danger: true)),
-          const SizedBox(width: 6),
-          Expanded(child: Btn('Logs', onPressed: () => router.go(AppDetailRoute(a.name, AppTab.logs)))),
-          const SizedBox(width: 6),
-          _DestroyBtn(host, a.name),
-        ]),
+          Btn('Logs', onPressed: () => router.go(AppDetailRoute(a.name, AppTab.logs))),
+        ], destroy: _DestroyBtn(host, a.name)),
       ]),
     );
   }
+}
+
+/// The card's buttons in one row of equal widths, with the destroy button at
+/// the end. A card too narrow to show every label whole (about 320 wide, the
+/// three-column grid of a 1280 window) gets balanced rows instead: two and two.
+///
+/// Laid out by a delegate rather than a [LayoutBuilder], because the grid
+/// asks the cards for their intrinsic height to make a row of them equal.
+class _CardActions extends StatelessWidget {
+  const _CardActions(this.buttons, {required this.destroy});
+  final List<Btn> buttons;
+
+  /// Square, and always last.
+  final Widget destroy;
+
+  @override
+  Widget build(BuildContext context) => CustomMultiChildLayout(
+        delegate: _ActionRows(
+          count: buttons.length,
+          widest: buttons.map((b) => b.naturalWidth(context)).reduce(math.max),
+          height: Btn.heightOf(context),
+        ),
+        children: [
+          for (final (i, b) in buttons.indexed) LayoutId(id: i, child: b),
+          LayoutId(id: _ActionRows.destroy, child: destroy),
+        ],
+      );
+}
+
+class _ActionRows extends MultiChildLayoutDelegate {
+  _ActionRows({required this.count, required this.widest, required this.height});
+
+  /// How many buttons come before the destroy button.
+  final int count;
+
+  /// The narrowest width that shows every label whole.
+  final double widest;
+
+  /// Of a button; the destroy button is as wide.
+  final double height;
+
+  static const destroy = 'destroy', gap = 6.0;
+
+  /// The most buttons per row that leaves no label cut short beside the
+  /// destroy button, then evened out: four that need two rows go two and two.
+  int _perRow(double width) {
+    var n = count;
+    while (n > 1 && (width - height - n * gap) / n < widest + .5) {
+      n--;
+    }
+    return (count / (count / n).ceil()).ceil();
+  }
+
+  @override
+  Size getSize(BoxConstraints constraints) {
+    final rows = (count / _perRow(constraints.maxWidth)).ceil();
+    return Size(constraints.maxWidth, rows * height + (rows - 1) * gap);
+  }
+
+  @override
+  void performLayout(Size size) {
+    final perRow = _perRow(size.width), rows = (count / perRow).ceil();
+    for (var r = 0; r < rows; r++) {
+      final last = r == rows - 1, y = r * (height + gap);
+      final from = r * perRow, to = math.min(from + perRow, count);
+      final share = (size.width - (last ? height + gap : 0) - (to - from - 1) * gap) / (to - from);
+      for (var i = from; i < to; i++) {
+        layoutChild(i, BoxConstraints.tight(Size(share, height)));
+        positionChild(i, Offset((i - from) * (share + gap), y));
+      }
+      if (last) {
+        layoutChild(destroy, BoxConstraints.tight(Size.square(height)));
+        positionChild(destroy, Offset(size.width - height, y));
+      }
+    }
+  }
+
+  @override
+  bool shouldRelayout(_ActionRows old) => old.count != count || old.widest != widest || old.height != height;
 }
 
 class _AppTable extends ConsumerWidget {
