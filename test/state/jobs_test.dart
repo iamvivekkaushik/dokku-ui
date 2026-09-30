@@ -1,3 +1,4 @@
+import 'package:dokku_console/data/models.dart';
 import 'package:dokku_console/data/stores.dart';
 import 'package:dokku_console/state/core.dart';
 import 'package:dokku_console/state/jobs.dart';
@@ -50,6 +51,19 @@ void main() {
       expect(t.scope.read(failedJobProvider)?.command, 'dokku ps:restart demo-app');
       final log = await t.scope.read(activityLogProvider).load();
       expect([for (final e in log) (e.command, e.ok)], [('dokku ps:restart demo-app', false)]);
+    });
+
+    test('a host command runs as is for root, through sudo for anyone else, and is logged', () async {
+      final t = _start({});
+      final r = await t.jobs.runShell(rootHost, ['chown', '472:472', '/var/lib/dokku/data/storage/grafana-data']);
+      expect(r.ok, isTrue);
+      expect(t.ssh.hostRan, ['chown 472:472 /var/lib/dokku/data/storage/grafana-data']);
+      expect(t.scope.read(jobsProvider).single.command, 'chown 472:472 /var/lib/dokku/data/storage/grafana-data');
+      final sudo = Host(id: 'h-sudo', name: 'prod-01', host: '203.0.113.10', username: 'deploy', sudo: true, createdAt: DateTime(2026));
+      await t.jobs.runShell(sudo, ['chown', '472:472', '/x y']);
+      expect(t.ssh.hostRan.last, "sudo -n chown 472:472 '/x y'");
+      final log = await t.scope.read(activityLogProvider).load();
+      expect(log.map((e) => e.command), contains('chown 472:472 /var/lib/dokku/data/storage/grafana-data'), reason: 'a change, not a lookup');
     });
 
     test('a quiet failure stays in the dock without opening the error dialog', () async {

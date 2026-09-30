@@ -15,7 +15,7 @@ const storageRoot = '/var/lib/dokku/data/storage';
 
 /// A directory the app has to keep between deploys.
 class TemplateMount {
-  const TemplateMount(this.path, {required this.name, required this.what, this.owner = 'heroku'});
+  const TemplateMount(this.path, {required this.name, required this.what, this.owner = 'heroku', this.uid});
 
   /// Path inside the container.
   final String path;
@@ -30,6 +30,11 @@ class TemplateMount {
   /// of most official images) or `paketo`, or `false` to leave the directory to
   /// the dokku user, which an image that runs as root writes to as well.
   final String owner;
+
+  /// The uid the image runs as when it is none of those: the directory is
+  /// handed to it with chown on the host, which takes a root or sudo login,
+  /// and [owner] does not apply.
+  final int? uid;
 }
 
 /// A datastore the app uses: provisioned with its Dokku plugin, then linked.
@@ -703,6 +708,205 @@ const templates = [
     hue: 0xFF6965DB,
     notes: 'Open {url} and draw.',
   ),
+  AppTemplate(
+    id: 'grafana',
+    name: 'Grafana',
+    category: 'Monitoring & alerts',
+    tagline: 'Dashboards and alerts over any data source.',
+    description: 'Dashboards, users and settings live in SQLite on the mounted directory, which is handed to uid 472, the user '
+        'the image runs as. Data sources such as Prometheus or PostgreSQL are added in the UI.',
+    homepage: 'https://grafana.com/docs/grafana/latest/setup-grafana/installation/docker/',
+    image: 'grafana/grafana',
+    port: 3000,
+    glyph: 'gf',
+    hue: 0xFFF46800,
+    mounts: [TemplateMount('/var/lib/grafana', name: 'data', what: 'dashboards, users and the SQLite database', uid: 472)],
+    env: {'GF_SERVER_ROOT_URL': '{url}'},
+    settings: [TemplateSetting(['GF_SECURITY_ADMIN_USER'], 'Admin user name', value: 'admin')],
+    secrets: ['GF_SECURITY_ADMIN_PASSWORD'],
+    notes: 'Sign in at {url} as the admin user with the GF_SECURITY_ADMIN_PASSWORD from the Environment tab.',
+  ),
+  AppTemplate(
+    id: 'pgadmin',
+    name: 'pgAdmin',
+    category: 'Developer tools',
+    tagline: 'The PostgreSQL administration tool, in the browser.',
+    description: 'Saved servers, preferences and query history live on the mounted directory, handed to uid 5050. Servers are '
+        'added in the UI; a Dokku PostgreSQL service is reachable once it is exposed on the Datastores page.',
+    homepage: 'https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html',
+    image: 'dpage/pgadmin4',
+    port: 80,
+    glyph: 'pa',
+    hue: 0xFF336791,
+    mounts: [TemplateMount('/var/lib/pgadmin', name: 'data', what: 'saved servers, preferences and query history', uid: 5050)],
+    settings: [TemplateSetting(['PGADMIN_DEFAULT_EMAIL'], 'Admin email', value: 'admin@example.com', hint: 'The login.')],
+    secrets: ['PGADMIN_DEFAULT_PASSWORD'],
+    notes: 'Sign in at {url} with the admin email and the PGADMIN_DEFAULT_PASSWORD from the Environment tab.',
+  ),
+  AppTemplate(
+    id: 'verdaccio',
+    name: 'Verdaccio',
+    category: 'Developer tools',
+    tagline: 'A private npm registry and proxy.',
+    description: 'Publishes your own packages and caches the public registry. Packages and users live on the mounted directory, '
+        'handed to uid 10001. The configuration in the image lets anyone register and publish.',
+    homepage: 'https://verdaccio.org/docs/docker',
+    image: 'verdaccio/verdaccio',
+    tags: ['6'],
+    port: 4873,
+    glyph: 'vd',
+    hue: 0xFF4B5E40,
+    mounts: [TemplateMount('/verdaccio/storage', name: 'storage', what: 'packages and users', uid: 10001)],
+    env: {'VERDACCIO_PUBLIC_URL': '{url}'},
+    notes: 'Point npm at it with npm set registry {url}, then npm adduser to create the first user.',
+  ),
+  AppTemplate(
+    id: 'hedgedoc',
+    name: 'HedgeDoc',
+    category: 'Notes & wikis',
+    tagline: 'Collaborative Markdown notes, in real time.',
+    description: 'Notes and users live in PostgreSQL, which is provisioned and linked here; uploaded images live on the mounted '
+        'directory, handed to uid 10000. Anyone may register until sign-ups are turned off.',
+    homepage: 'https://docs.hedgedoc.org/setup/docker/',
+    image: 'quay.io/hedgedoc/hedgedoc',
+    tags: ['latest', 'alpine'],
+    port: 3000,
+    glyph: 'hd',
+    hue: 0xFFB51F08,
+    mounts: [TemplateMount('/hedgedoc/public/uploads', name: 'uploads', what: 'uploaded images', uid: 10000)],
+    services: [TemplateService('postgres', required: true, env: {'CMD_DB_URL': '{url}'})],
+    env: {'CMD_DOMAIN': '{domain}', 'CMD_PROTOCOL_USESSL': '{https}', 'CMD_URL_ADDPORT': 'false'},
+    settings: [
+      TemplateSetting(['CMD_ALLOW_EMAIL_REGISTER'], 'Allow sign-ups', value: 'true', choices: ['true', 'false'], hint: 'Turn off after creating your account.'),
+    ],
+    secrets: ['CMD_SESSION_SECRET'],
+    notes: 'Open {url} and register the first account.',
+  ),
+  AppTemplate(
+    id: 'outline',
+    name: 'Outline',
+    category: 'Notes & wikis',
+    tagline: 'A team knowledge base, fast and well designed.',
+    description: 'Documents live in PostgreSQL and sessions in Redis, both provisioned and linked here; uploads live on the mounted '
+        'directory, handed to uid 1001. Outline has no passwords of its own: sign-in goes through an OpenID Connect provider such as '
+        'Keycloak or Pocket ID, set below or later in the Environment tab.',
+    homepage: 'https://docs.getoutline.com/s/hosting/',
+    image: 'outlinewiki/outline',
+    port: 3000,
+    glyph: 'ol',
+    hue: 0xFF0366D6,
+    mounts: [TemplateMount('/var/lib/outline/data', name: 'data', what: 'uploaded files and images', uid: 1001)],
+    services: [
+      TemplateService('postgres', required: true),
+      TemplateService('redis', suffix: 'redis', required: true, from: 'REDIS_URL'),
+    ],
+    env: {
+      'URL': '{url}',
+      'FORCE_HTTPS': '{https}',
+      'PGSSLMODE': 'disable',
+      'FILE_STORAGE': 'local',
+      'FILE_STORAGE_LOCAL_ROOT_DIR': '/var/lib/outline/data',
+      'FILE_STORAGE_UPLOAD_MAX_SIZE': '262144000',
+    },
+    settings: [
+      TemplateSetting(['OIDC_CLIENT_ID'], 'OIDC client ID'),
+      TemplateSetting(['OIDC_CLIENT_SECRET'], 'OIDC client secret'),
+      TemplateSetting(['OIDC_AUTH_URI'], 'OIDC authorization URL', hint: 'Such as https://id.example.com/realms/main/protocol/openid-connect/auth'),
+      TemplateSetting(['OIDC_TOKEN_URI'], 'OIDC token URL'),
+      TemplateSetting(['OIDC_USERINFO_URI'], 'OIDC user info URL'),
+      TemplateSetting(['OIDC_DISPLAY_NAME'], 'Sign-in button label', value: 'OpenID Connect'),
+    ],
+    secrets: ['SECRET_KEY', 'UTILS_SECRET'],
+    notes: 'Open {url} and sign in through the OpenID Connect provider; the first account becomes the admin. '
+        'Its redirect URL is {url}/auth/oidc.callback.',
+  ),
+  AppTemplate(
+    id: 'formbricks',
+    name: 'Formbricks',
+    category: 'Analytics',
+    tagline: 'Surveys and forms, in your app and by link.',
+    description: 'Needs PostgreSQL and Redis, which are provisioned and linked here; uploads live on the mounted directory, '
+        'handed to uid 1001.',
+    homepage: 'https://formbricks.com/docs/self-hosting/setup/docker',
+    image: 'ghcr.io/formbricks/formbricks',
+    port: 3000,
+    glyph: 'fb',
+    hue: 0xFF00C4B8,
+    mounts: [TemplateMount('/home/nextjs/apps/web/uploads', name: 'uploads', what: 'uploaded files', uid: 1001)],
+    services: [
+      TemplateService('postgres', required: true),
+      TemplateService('redis', suffix: 'redis', required: true, from: 'REDIS_URL'),
+    ],
+    env: {'WEBAPP_URL': '{url}', 'NEXTAUTH_URL': '{url}'},
+    secrets: ['NEXTAUTH_SECRET', 'ENCRYPTION_KEY', 'CRON_SECRET'],
+    notes: 'Open {url} to create the first account, which owns the organization.',
+  ),
+  AppTemplate(
+    id: 'actual',
+    name: 'Actual Budget',
+    category: 'Finance',
+    tagline: 'Local-first envelope budgeting, synced through your own server.',
+    description: 'The sync server: budgets and user files live on the mounted directory, handed to uid 1001. The apps and the '
+        'web client sync through it and keep working offline.',
+    homepage: 'https://actualbudget.org/docs/install/docker',
+    image: 'actualbudget/actual-server',
+    tags: ['latest', 'latest-alpine'],
+    port: 5006,
+    glyph: 'ab',
+    hue: 0xFF7C3AED,
+    mounts: [TemplateMount('/data', name: 'data', what: 'budgets and user files', uid: 1001)],
+    notes: 'Open {url} to set the server password, then point the Actual apps at it.',
+  ),
+  AppTemplate(
+    id: 'searxng',
+    name: 'SearXNG',
+    category: 'Search',
+    tagline: 'A private metasearch engine over many sources.',
+    description: 'Queries go to the engines you enable and come back without tracking. settings.yml is written on the first '
+        'start to the mounted config directory, the favicon cache to the second; both are handed to uid 977, the user the '
+        'image runs as.',
+    homepage: 'https://docs.searxng.org/admin/installation-docker.html',
+    image: 'searxng/searxng',
+    port: 8080,
+    glyph: 'sx',
+    hue: 0xFF3050FF,
+    mounts: [
+      TemplateMount('/etc/searxng', name: 'config', what: 'settings.yml', uid: 977),
+      TemplateMount('/var/cache/searxng', name: 'cache', what: 'the favicon cache', uid: 977),
+    ],
+    env: {'SEARXNG_BASE_URL': '{url}/'},
+    secrets: ['SEARXNG_SECRET'],
+    notes: 'Open {url} and search. Engines and the look are set in {data}/settings.yml on the host.',
+  ),
+  AppTemplate(
+    id: 'linkding',
+    name: 'linkding',
+    category: 'Reading',
+    tagline: 'A bookmark manager that stays out of the way.',
+    description: 'Bookmarks, tags and the SQLite database live on the mounted directory. The first user is created on the first '
+        'start; add PostgreSQL for large collections.',
+    homepage: 'https://linkding.link/installation/',
+    image: 'sissbruecker/linkding',
+    tags: ['latest', 'latest-plus'],
+    port: 9090,
+    glyph: 'ld',
+    hue: 0xFF5856D6,
+    mounts: [TemplateMount('/etc/linkding/data', name: 'data', what: 'bookmarks and the SQLite database', owner: 'false')],
+    services: [
+      TemplateService('postgres', why: 'For large collections; SQLite otherwise.', env: {
+        'LD_DB_ENGINE': 'postgres',
+        'LD_DB_HOST': '{host}',
+        'LD_DB_PORT': '{port}',
+        'LD_DB_DATABASE': '{database}',
+        'LD_DB_USER': '{user}',
+        'LD_DB_PASSWORD': '{password}',
+      }),
+    ],
+    env: {'LD_CSRF_TRUSTED_ORIGINS': '{url}'},
+    settings: [TemplateSetting(['LD_SUPERUSER_NAME'], 'Admin user name', value: 'admin')],
+    secrets: ['LD_SUPERUSER_PASSWORD'],
+    notes: 'Sign in at {url} as the admin user with the LD_SUPERUSER_PASSWORD from the Environment tab.',
+  ),
 ];
 
 AppTemplate? templateOf(String id) => templates.where((t) => t.id == id).firstOrNull;
@@ -890,6 +1094,12 @@ class RunStep extends PlanStep {
   const RunStep(super.args, {super.timeout, super.quiet});
 }
 
+/// A command on the host itself rather than a Dokku one: chown for a mount
+/// with a uid. Only a root or sudo login can run it.
+class HostStep extends PlanStep {
+  const HostStep(super.args) : super(timeout: const Duration(minutes: 2));
+}
+
 /// Links a service; afterwards the variables the app expects are set from
 /// the URL the link put on the app.
 class LinkStep extends PlanStep {
@@ -962,7 +1172,12 @@ InstallPlan planInstall(AppTemplate t, InstallChoices c, {required String defaul
     RunStep(['apps:create', app]),
     for (final m in t.mounts)
       if (c.mounts.contains(m.name)) ...[
-        RunStep(['storage:ensure-directory', if (m.owner != 'herokuish') ...['--chown', m.owner], '$app-${m.name}']),
+        RunStep([
+          'storage:ensure-directory',
+          if (m.uid != null) ...['--chown', 'false'] else if (m.owner != 'herokuish') ...['--chown', m.owner],
+          '$app-${m.name}',
+        ]),
+        if (m.uid != null) HostStep(['chown', '${m.uid}:${m.uid}', '$storageRoot/$app-${m.name}']),
         RunStep(['storage:mount', app, '$storageRoot/$app-${m.name}:${m.path}']),
       ],
     if (env.isNotEmpty) RunStep(configSetArgs(app, env)),
@@ -1000,7 +1215,7 @@ String describePlan(InstallPlan p) {
       lines.add('\$ dokku config:set --no-restart ${p.app} ${pairs.join(' ')}');
       continue;
     }
-    lines.add('\$ ${displayCommand(s.args)}');
+    lines.add(s is HostStep ? '\$ ${s.args.map(shq).join(' ')}' : '\$ ${displayCommand(s.args)}');
     if (s is LinkStep && s.service.env.isNotEmpty) {
       final pairs = [for (final k in s.service.env.keys) '$k=<from ${s.service.from}>'];
       lines.add('\$ dokku config:set --no-restart ${p.app} ${pairs.join(' ')}');
@@ -1013,10 +1228,19 @@ final _domain = RegExp(r'^[a-z0-9.-]+\.[a-z]{2,}$', caseSensitive: false);
 final _email = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 final _memory = RegExp(r'^\d+[kmg]?$', caseSensitive: false);
 
-/// Why the install cannot start yet, in the order to fix things.
-List<String> installProblems(AppTemplate t, InstallChoices c, {required Set<String> plugins, required Iterable<String> apps}) => [
+/// Whether a kept mount is handed to a uid with chown on the host, which
+/// only a root or sudo login can do. Without [mounts], any such mount counts.
+bool needsChown(AppTemplate t, {Set<String>? mounts}) =>
+    t.mounts.any((m) => m.uid != null && (mounts == null || mounts.contains(m.name)));
+
+/// Why the install cannot start yet, in the order to fix things. [shell] is
+/// whether the login can run commands on the host itself.
+List<String> installProblems(AppTemplate t, InstallChoices c, {required Set<String> plugins, required Iterable<String> apps, bool shell = true}) => [
       if (!appNamePattern.hasMatch(c.app)) 'Name the app with lowercase letters, digits and dashes.',
       if (apps.contains(c.app)) 'An app named ${c.app} already exists.',
+      if (!shell && needsChown(t, mounts: c.mounts))
+        'Handing storage to uid ${t.mounts.firstWhere((m) => m.uid != null && c.mounts.contains(m.name)).uid} needs root. '
+            'Connect as root or as a user with sudo.',
       for (final s in t.services)
         if (c.services.contains(s.type) && c.urlOf(s.type).isEmpty && !plugins.contains(s.type))
           'The ${s.type} plugin is not installed. Install it, or give the URL of one running elsewhere.',

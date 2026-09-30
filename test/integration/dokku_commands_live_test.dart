@@ -409,7 +409,9 @@ void main() {
   Future<void> installPlan(InstallPlan plan) async {
     final h = _host('dokku');
     for (final step in plan.steps) {
-      final r = await ssh.dokku(h, step.args, timeout: const Duration(minutes: 15));
+      final r = step is HostStep
+          ? await ssh.exec(_host('root'), remoteShell(step.args, username: 'root'))
+          : await ssh.dokku(h, step.args, timeout: const Duration(minutes: 15));
       if (!r.ok && step.quiet) continue;
       expect(r.ok, isTrue, reason: '${displayCommand(step.args)} exited ${r.code}\n${stripAnsi(r.output)}');
       if (step is LinkStep && step.service.env.isNotEmpty) {

@@ -5,6 +5,19 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
+## Unreleased
+
+### Added
+
+- Nine more templates: Grafana, pgAdmin, Verdaccio, HedgeDoc, Outline,
+  Formbricks, Actual Budget, SearXNG and linkding. Eight of them run as a
+  uid Dokku cannot chown storage to, so the install hands the directory
+  over with `chown` on the host, which takes a root or sudo login; the card
+  says so, and the dokku user can still install one without its storage.
+- A job can now be a command on the host itself, not only a Dokku one: shown
+  in the dock, logged, retried and run through sudo when the login is not
+  root.
+
 ## 1.4.0 - 2026-09-30
 
 ### Added

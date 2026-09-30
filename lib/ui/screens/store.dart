@@ -34,7 +34,9 @@ Future<ExecResult?> installTemplate(WidgetRef ref, Host host, InstallPlan plan) 
   final title = 'Install ${plan.template.name}';
   ExecResult? last;
   for (final step in plan.steps) {
-    last = await run(step.args, title: title, timeout: step.timeout, quiet: step.quiet);
+    last = step is HostStep
+        ? await run.shell(step.args, title: title, timeout: step.timeout, quiet: step.quiet)
+        : await run(step.args, title: title, timeout: step.timeout, quiet: step.quiet);
     if (!last.ok) {
       if (step.quiet) continue;
       return last;
@@ -124,6 +126,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
             _TemplateCard(
               t,
               plugins: plugins,
+              shell: host.hasShell,
               loading: ds.isLoading && !ds.hasValue,
               installing: isBusy(t.id),
               onInstall: () => _install(t),
@@ -136,9 +139,12 @@ class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
 
 class _TemplateCard extends StatelessWidget {
   const _TemplateCard(this.t,
-      {required this.plugins, required this.loading, required this.installing, required this.onInstall, required this.onDocs});
+      {required this.plugins, required this.shell, required this.loading, required this.installing, required this.onInstall, required this.onDocs});
   final AppTemplate t;
   final Set<String> plugins;
+
+  /// Whether the login can run commands on the host itself.
+  final bool shell;
   final bool loading;
   final bool installing;
   final VoidCallback onInstall;
@@ -172,6 +178,12 @@ class _TemplateCard extends StatelessWidget {
         Wrap(spacing: 6, runSpacing: 6, children: [
           if (t.mounts.isNotEmpty) const Pill('storage', tone: Tone.mute, dot: false, mono: true),
           if (t.publish.isNotEmpty) const Pill('host ports', tone: Tone.mute, dot: false, mono: true),
+          if (needsChown(t))
+            Tooltip(
+              message: 'Its storage is handed to the uid the image runs as, with chown on the host'
+                  '${shell ? '.' : ', which needs root. Connect as root or as a user with sudo.'}',
+              child: Pill('needs root', tone: shell ? Tone.mute : Tone.warn, dot: false, mono: true),
+            ),
           for (final s in t.services) _need(s),
         ]),
         const SizedBox(height: 12),
@@ -253,7 +265,7 @@ class _InstallDialogState extends ConsumerState<InstallDialog> with Busy {
     final vhost = apps?.globalVhosts.firstOrNull ?? host.host;
     final defaultDomain = '${_c.app}.$vhost';
     final plan = planInstall(t, _c, defaultDomain: defaultDomain);
-    final problems = installProblems(t, _c, plugins: plugins, apps: names);
+    final problems = installProblems(t, _c, plugins: plugins, apps: names, shell: host.hasShell);
     final exists = names.contains(_c.app);
     final hasLe = plugins.contains('letsencrypt');
     final custom = _c.domain.trim();
@@ -305,7 +317,7 @@ class _InstallDialogState extends ConsumerState<InstallDialog> with Busy {
               SwitchRow(
                 title: 'Keep ${m.what} on the host',
                 desc: _c.mounts.contains(m.name)
-                    ? '$storageRoot/${_c.app}-${m.name} → ${m.path}'
+                    ? '$storageRoot/${_c.app}-${m.name} → ${m.path}${m.uid == null ? '' : ', handed to uid ${m.uid} with chown'}'
                     : 'Without it, ${m.what} are lost on every deploy.',
                 value: _c.mounts.contains(m.name),
                 onChanged: (on) => _set(_c.copyWith(mounts: on ? <String>{..._c.mounts, m.name} : (<String>{..._c.mounts}..remove(m.name)))),

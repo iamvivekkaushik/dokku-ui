@@ -138,6 +138,11 @@ String remoteCommand(List<String> args, {required String username, required bool
   return 'cd / && ${useSudo ? 'sudo -n ' : ''}dokku $quoted';
 }
 
+/// The command line for a command on the host itself, which only a shell
+/// login can run: as is for root, through sudo for anyone else.
+String remoteShell(List<String> args, {required String username}) =>
+    '${username == 'root' ? '' : 'sudo -n '}${args.map(shq).join(' ')}';
+
 /// Shell-like word splitting that honours quotes and backslashes.
 List<String> splitArgs(String line) {
   final out = <String>[];

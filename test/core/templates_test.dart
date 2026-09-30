@@ -46,6 +46,7 @@ void main() {
         }
         for (final m in t.mounts) {
           expect(['herokuish', 'heroku', 'paketo', 'false'], contains(m.owner), reason: '${t.id}: Dokku 0.35 knows no other owners');
+          if (m.uid != null) expect(m.uid, greaterThan(0), reason: '${t.id}: ${m.name}');
         }
         expect({for (final s in t.settings) s.id}.length, t.settings.length, reason: '${t.id}: setting ids are unique');
       }
@@ -71,6 +72,16 @@ void main() {
       expect(templateOf('docmost')?.services.map((s) => s.type), ['postgres', 'redis']);
       expect(templateOf('excalidraw')?.mounts, isEmpty);
       expect(templateOf('mattermost')?.mounts.map((m) => m.owner).toSet(), {'paketo'}, reason: 'Mattermost runs as uid 2000');
+    });
+
+    test('the templates whose image runs as another uid hand their storage over on the host', () {
+      for (final id in ['grafana', 'pgadmin', 'verdaccio', 'hedgedoc', 'outline', 'formbricks', 'actual', 'searxng']) {
+        expect(needsChown(templateOf(id)!), isTrue, reason: id);
+      }
+      expect(needsChown(templateOf('linkding')!), isFalse, reason: 'its entrypoint runs as root and chowns for itself');
+      expect(templateOf('grafana')!.mounts.single.uid, 472);
+      expect(templateOf('searxng')!.mounts.map((m) => m.uid), [977, 977]);
+      expect(templateOf('outline')!.services.map((s) => s.type), ['postgres', 'redis']);
     });
 
     test('the three the store was asked for are there', () {
@@ -210,6 +221,28 @@ void main() {
       final kc = templateOf('keycloak')!.services.single;
       expect(deriveEnv(kc, 'postgres://kc:p@db.example.com/keycloak')['KC_DB_URL'], 'jdbc:postgresql://db.example.com:5432/keycloak',
           reason: 'a URL without a port gets the default of its type');
+    });
+
+    test('a mount for another uid is handed over with chown on the host, which takes a shell login', () {
+      final t = templateOf('grafana')!;
+      final p = planInstall(t, defaultChoices(t), defaultDomain: 'grafana.dokku.test');
+      expect(commandsOf(p), [
+        'apps:create grafana',
+        'storage:ensure-directory --chown false grafana-data',
+        'chown 472:472 /var/lib/dokku/data/storage/grafana-data',
+        'storage:mount grafana /var/lib/dokku/data/storage/grafana-data:/var/lib/grafana',
+        'config:set',
+        'ports:set grafana http:80:3000',
+        'git:from-image grafana grafana/grafana:latest',
+      ]);
+      expect(p.steps[2], isA<HostStep>());
+      expect(describePlan(p), contains('\n\$ chown 472:472 /var/lib/dokku/data/storage/grafana-data\n'));
+      expect(describePlan(p), isNot(contains('dokku chown')));
+      expect(installProblems(t, defaultChoices(t), plugins: {}, apps: []), isEmpty);
+      expect(installProblems(t, defaultChoices(t), plugins: {}, apps: [], shell: false).single, contains('needs root'));
+      final ephemeral = defaultChoices(t).copyWith(mounts: {});
+      expect(installProblems(t, ephemeral, plugins: {}, apps: [], shell: false), isEmpty, reason: 'nothing to hand over');
+      expect(planInstall(t, ephemeral, defaultDomain: 'grafana.dokku.test').steps.whereType<HostStep>(), isEmpty);
     });
 
     test('a start command goes through DOKKU_DOCKERFILE_START_CMD', () {

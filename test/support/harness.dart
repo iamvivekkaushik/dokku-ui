@@ -95,6 +95,9 @@ class FakeSsh extends SshService {
   final missing = <String>{};
   final streams = <FakeStream>[];
 
+  /// Every command run on the host itself, as sent.
+  final hostRan = <String>[];
+
   /// What was sent on standard input, for the commands that were given any.
   final inputs = <({List<String> args, String stdin})>[];
 
@@ -158,7 +161,17 @@ class FakeSsh extends SshService {
       {Pty? pty, List<int>? stdin, bool shell = false, required void Function(String chunk, bool isStderr) onData}) async {
     final s = FakeStream();
     streams.add(s);
-    if (!shell && pty == null) scheduleMicrotask(s.finish);
+    if (!shell && pty == null) {
+      // A host command, such as the Store's chown: recorded, answered from a
+      // fixture keyed by the command line if there is one, and done at once.
+      hostRan.add(cmd);
+      final r = fixtures[cmd];
+      scheduleMicrotask(() {
+        if (r != null && r.stdout.isNotEmpty) onData(r.stdout, false);
+        if (r != null && r.stderr.isNotEmpty) onData(r.stderr, true);
+        s.finish(r?.code ?? 0);
+      });
+    }
     return s;
   }
 

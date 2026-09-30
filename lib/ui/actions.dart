@@ -52,6 +52,10 @@ class DokkuRunner {
   }) =>
       _jobs.run(host, args, title: title, stdin: stdin, files: files, timeout: timeout, quiet: quiet, probe: probe);
 
+  /// Runs a command on the host itself, as root or through sudo.
+  Future<ExecResult> shell(List<String> args, {String? title, Duration timeout = const Duration(minutes: 5), bool quiet = false}) =>
+      _jobs.runShell(host, args, title: title, timeout: timeout, quiet: quiet);
+
   /// Runs [commands] in order and stops at the first that fails. Returns the
   /// result of the last one that ran, or null when there were none.
   Future<ExecResult?> all(Iterable<List<String>> commands, {String? title, Duration timeout = const Duration(minutes: 30)}) async {

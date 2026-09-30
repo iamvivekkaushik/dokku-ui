@@ -75,10 +75,11 @@ void main() {
     testWidgets('the category list filters the grid, together with the text filter', (tester) async {
       await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost);
       expect(find.text('All · ${templates.length}'), findsOneWidget);
-      await _press(tester, find.text('Monitoring & alerts · 3'));
+      await _press(tester, find.text('Monitoring & alerts · 4'));
       expect(find.text('Uptime Kuma'), findsOneWidget);
       expect(find.text('Gotify'), findsOneWidget);
       expect(find.text('ntfy'), findsOneWidget);
+      expect(find.text('Grafana'), findsOneWidget);
       expect(find.text('n8n'), findsNothing);
       await _type(tester, _field('Filter templates'), 'push');
       expect(find.text('Gotify'), findsOneWidget);
@@ -215,6 +216,40 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('a template whose image runs as another uid hands its storage over on the host, as root', (tester) async {
+      final ssh = await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost);
+      expect(find.text('needs root'), findsWidgets);
+      await _press(tester, find.byKey(const ValueKey('install-grafana')));
+      expect(find.textContaining('handed to uid 472 with chown'), findsOneWidget);
+      expect(_preview(tester), contains('\$ chown 472:472 /var/lib/dokku/data/storage/grafana-data'));
+      await _press(tester, find.widgetWithText(Btn, 'Install Grafana'));
+      await settle(tester, frames: 30);
+      expect(_joined(ssh), [
+        'apps:create grafana',
+        'storage:ensure-directory --chown false grafana-data',
+        'storage:mount grafana /var/lib/dokku/data/storage/grafana-data:/var/lib/grafana',
+        'config:set',
+        'ports:set grafana http:80:3000',
+        'git:from-image grafana grafana/grafana:latest',
+      ]);
+      expect(ssh.hostRan, ['chown 472:472 /var/lib/dokku/data/storage/grafana-data'], reason: 'root runs it as is');
+      expect(find.text('Grafana is up'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('the dokku user cannot hand storage over, unless the mount is left out', (tester) async {
+      final ssh = await pumpScreen(tester, StoreScreen(host: dokkuHost));
+      await _press(tester, find.byKey(const ValueKey('install-grafana')));
+      expect(find.textContaining('needs root'), findsWidgets);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install Grafana')).onPressed, isNull);
+      await _press(tester, _switch('Keep dashboards, users and the SQLite database on the host'));
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install Grafana')).onPressed, isNotNull, reason: 'nothing to hand over');
+      expect(_preview(tester), isNot(contains('chown')));
+      expect(ssh.changes, isEmpty);
+      await _press(tester, find.widgetWithText(Btn, 'Cancel'));
+      await finish(tester);
+    });
+
     testWidgets('a failure stops the install where it is', (tester) async {
       final ssh = await pumpScreen(tester, StoreScreen(host: rootHost), host: rootHost, answers: {'ports:set n8n http:80:5678': failed(' !     nope\n')});
       await _press(tester, find.byKey(const ValueKey('install-n8n')));
@@ -255,7 +290,7 @@ void main() {
       final ssh = await pumpScreen(tester, StoreScreen(host: dokkuHost));
       await _press(tester, find.byKey(const ValueKey('install-umami')));
       expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Install plugin')).onPressed, isNull);
-      expect(find.textContaining('needs root'), findsOneWidget);
+      expect(find.textContaining('Installing plugins needs root'), findsOneWidget);
       expect(ssh.changes, isEmpty);
       await finish(tester);
     });

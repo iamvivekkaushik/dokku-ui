@@ -34,6 +34,7 @@ class Job {
     this.status = JobStatus.running,
     this.code,
     this.durationMs = 0,
+    this.shell = false,
   });
 
   final int id;
@@ -49,6 +50,10 @@ class Job {
   final int? code;
   final int durationMs;
 
+  /// A command on the host itself rather than a Dokku one, run as root or
+  /// through sudo.
+  final bool shell;
+
   String get text => stripAnsi(output.map((c) => c.text).join());
 
   Job copyWith({List<JobChunk>? output, JobStatus? status, int? code, int? durationMs}) => Job(
@@ -62,6 +67,7 @@ class Job {
         status: status ?? this.status,
         code: code ?? this.code,
         durationMs: durationMs ?? this.durationMs,
+        shell: shell,
       );
 }
 
@@ -96,7 +102,7 @@ class JobsNotifier extends Notifier<List<Job>> {
   Future<ExecResult> retry(Job job) {
     final before = _retry[job.id];
     dismiss(job.id);
-    return _run(job.host, job.args, title: job.title, input: before?.input, timeout: before?.timeout ?? const Duration(minutes: 30));
+    return _run(job.host, job.args, title: job.title, input: before?.input, timeout: before?.timeout ?? const Duration(minutes: 30), shell: job.shell);
   }
 
   void cancel(int id) => _streams[id]?.kill();
@@ -127,6 +133,11 @@ class JobsNotifier extends Notifier<List<Job>> {
         probe: probe,
       );
 
+  /// Runs a command on the host itself, as root or through sudo, streaming
+  /// its output into a job like a Dokku command.
+  Future<ExecResult> runShell(Host host, List<String> args, {String? title, Duration timeout = const Duration(minutes: 5), bool quiet = false}) =>
+      _run(host, args, title: title, timeout: timeout, quiet: quiet, shell: true);
+
   Future<ExecResult> _run(
     Host host,
     List<String> args, {
@@ -135,16 +146,18 @@ class JobsNotifier extends Notifier<List<Job>> {
     required Duration timeout,
     bool quiet = false,
     bool probe = false,
+    bool shell = false,
   }) async {
     final id = ++_seq;
-    final shown = displayCommand(args);
+    final shown = shell ? remoteShell(args, username: host.username) : displayCommand(args);
     final job = Job(
       id: id,
-      title: title ?? subcommandOf(args),
+      title: title ?? (shell ? args.first : subcommandOf(args)),
       command: shown,
       args: args,
       host: host,
       startedAt: DateTime.now(),
+      shell: shell,
     );
     final recent = state.length > 5 ? state.sublist(state.length - 5) : state;
     state = [...recent, job];
@@ -153,16 +166,19 @@ class JobsNotifier extends Notifier<List<Job>> {
     final out = StringBuffer(), err = StringBuffer();
     ExecResult result;
     try {
-      validateDokkuArgs(args);
-      final stream = await ref.read(sshServiceProvider).dokkuStream(
-        host,
-        args,
-        stdin: input,
-        onData: (chunk, isStderr) {
-          (isStderr ? err : out).write(chunk);
-          _update(id, (j) => j.copyWith(output: [...j.output, JobChunk(chunk, isStderr)]));
-        },
-      );
+      void onData(String chunk, bool isStderr) {
+        (isStderr ? err : out).write(chunk);
+        _update(id, (j) => j.copyWith(output: [...j.output, JobChunk(chunk, isStderr)]));
+      }
+
+      final ssh = ref.read(sshServiceProvider);
+      final RemoteStream stream;
+      if (shell) {
+        stream = await ssh.stream(host, remoteShell(args, username: host.username), stdin: input, onData: onData);
+      } else {
+        validateDokkuArgs(args);
+        stream = await ssh.dokkuStream(host, args, stdin: input, onData: onData);
+      }
       _streams[id] = stream;
       final exit = await stream.done.timeout(timeout, onTimeout: () {
         stream.kill();
@@ -197,7 +213,7 @@ class JobsNotifier extends Notifier<List<Job>> {
       (j) => j.copyWith(status: result.ok ? JobStatus.ok : JobStatus.failed, code: result.code, durationMs: result.durationMs),
     );
 
-    if (!isReadOnly(args)) {
+    if (shell || !isReadOnly(args)) {
       await ref.read(activityLogProvider).add(
             hostId: host.id,
             command: shown,

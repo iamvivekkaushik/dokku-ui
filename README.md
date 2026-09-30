@@ -119,7 +119,7 @@ zip to drag over the app, on Windows the zip to unpack over the folder.
 | Sign in as | What works |
 | --- | --- |
 | `dokku` | Everything Dokku allows remotely: apps, deploys, config, domains, certificates, storage, datastores, logs. |
-| `root`, or a sudo user with **Run dokku with sudo** | All of the above, plus SSH key management, plugin install and update, Dokku upgrade and install, host CPU, memory and disk metrics, per-container metrics, and the interactive SSH terminal. |
+| `root`, or a sudo user with **Run dokku with sudo** | All of the above, plus SSH key management, plugin install and update, Dokku upgrade and install, host CPU, memory and disk metrics, per-container metrics, the interactive SSH terminal, and Store templates that hand their storage to the uid the image runs as. |
 
 Dokku itself refuses `ssh-keys:add/remove` and `plugin:install/update` for the
 `dokku` user, so those buttons are disabled with an explanation in that mode. A
@@ -163,7 +163,7 @@ only the path; the key stays in its file.
 | Area | Where | Dokku commands |
 | --- | --- | --- |
 | Apps | Apps, app Settings | `apps:create` `destroy` `list` `rename` `clone` `report` `lock` `unlock` |
-| Store | Store | Installs a template: `apps:create` `storage:ensure-directory` `storage:mount` `config:set` `ports:set` `domains:set` `resource:limit` `<service>:create` `<service>:link` `docker-options:add` `proxy:disable` `git:from-image` `letsencrypt:enable` |
+| Store | Store | Installs a template: `apps:create` `storage:ensure-directory` `storage:mount` `config:set` `ports:set` `domains:set` `resource:limit` `<service>:create` `<service>:link` `docker-options:add` `proxy:disable` `git:from-image` `letsencrypt:enable`, and `chown` on the host for an image that runs as a uid Dokku cannot chown to |
 | Deploys | Deploy app, app Deploys | `git:sync` `git:from-image` `git:set` `git:unlock` `builds:list` `builds:output` `builds:cancel` `ps:rebuild` |
 | Builders | app Build | `builder:set` `builder:report` `builder-dockerfile:set` `buildpacks:add` `set` `remove` `clear` |
 | Processes | app Processes | `ps:scale` `start` `stop` `restart` `rebuild` `ps:set` `run` `run:detached` `enter` `cron:list` `cron:run` |
