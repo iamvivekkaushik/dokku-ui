@@ -11,11 +11,14 @@ import 'dart:io';
 
 import 'package:dokku_console/core/command.dart';
 import 'package:dokku_console/core/host_scripts.dart';
+import 'package:dokku_console/core/updates.dart';
 import 'package:dokku_console/data/models.dart';
+import 'package:dokku_console/data/self_update.dart';
 import 'package:dokku_console/data/ssh_service.dart';
 import 'package:dokku_console/data/stores.dart';
 import 'package:dokku_console/state/core.dart';
 import 'package:dokku_console/state/queries.dart';
+import 'package:dokku_console/state/updates.dart';
 import 'package:dokku_console/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -197,6 +200,10 @@ Future<void> loadAppFonts() async {
 /// capture does not cover (a newer Dokku, an installed plugin, an error).
 /// [hosts] replaces the saved hosts; pass an empty list for a fresh install.
 /// [fake] builds the SSH layer, for tests that need one that misbehaves.
+/// [latestDokku] is the newest Dokku release as GitHub reports it, or null when
+/// GitHub cannot be reached.
+/// [release] is what GitHub answers about the newest build (none by default),
+/// [platform] the operating system to pretend to be, [updater] the self-updater.
 Future<FakeSsh> pumpScreen(
   WidgetTester tester,
   Widget child, {
@@ -206,6 +213,10 @@ Future<FakeSsh> pumpScreen(
   Map<String, ExecResult> answers = const {},
   FakeSsh Function(Map<String, ExecResult> fixtures)? fake,
   bool scroll = true,
+  String? latestDokku = 'v0.38.31',
+  AppRelease? release,
+  String? platform,
+  SelfUpdater? updater,
 }) async {
   await tester.runAsync(loadAppFonts);
   tester.view
@@ -223,7 +234,10 @@ Future<FakeSsh> pumpScreen(
       plainStoreProvider.overrideWithValue(saved),
       secureStoreProvider.overrideWithValue(MemoryStore()),
       sshServiceProvider.overrideWithValue(ssh),
-      latestDokkuProvider.overrideWith((ref) async => 'v0.38.31'),
+      latestDokkuProvider.overrideWith((ref) async => latestDokku),
+      appReleaseProvider.overrideWith((ref) async => release),
+      if (platform != null) platformProvider.overrideWithValue(platform),
+      if (updater != null) selfUpdaterProvider.overrideWithValue(updater),
       dnsProvider.overrideWith((ref, q) async => {
             for (final n in q.names) n: DnsCheck(n, const ['203.0.113.10'], true),
           }),

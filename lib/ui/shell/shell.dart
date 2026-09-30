@@ -3,11 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format.dart';
+import '../../core/version.dart';
 import '../../data/models.dart';
 import '../../state/core.dart';
 import '../../state/jobs.dart';
 import '../../state/queries.dart';
 import '../../state/router.dart';
+import '../../state/updates.dart';
 import '../screens/app_detail.dart';
 import '../screens/apps.dart';
 import '../screens/dashboard.dart';
@@ -23,6 +25,7 @@ import 'connect_dialog.dart';
 import 'error_dialog.dart';
 import 'job_dock.dart';
 import 'terminal.dart';
+import 'update_dialog.dart';
 
 class _Nav {
   const _Nav(this.label, this.icon, this.section, {this.tab});
@@ -298,7 +301,68 @@ class _ActivityPanel extends ConsumerWidget {
                     },
                   ),
           ),
+          const _UpdateRow(),
         ]),
+      ),
+    );
+  }
+}
+
+/// This build's version at the foot of the activity panel, and the way to a
+/// newer one.
+class _UpdateRow extends ConsumerWidget {
+  const _UpdateRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final update = ref.watch(updateProvider);
+    final navigator = Navigator.of(context, rootNavigator: true);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: C.line))),
+      child: Row(children: [
+        Expanded(child: Text('Dokku Console $appVersion', style: T.meta)),
+        LinkText(update == null ? 'Check for updates' : 'Update to ${update.version}', onTap: () {
+          navigator.pop();
+          showUpdateDialog(navigator.context);
+        }),
+      ]),
+    );
+  }
+}
+
+/// The version at the foot of the sidebar, lit when a newer release is out.
+class _VersionRow extends ConsumerWidget {
+  const _VersionRow({required this.open});
+  final bool open;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final update = ref.watch(updateProvider);
+    if (!open && update == null) return const SizedBox.shrink();
+    final color = update == null ? C.dim : C.info;
+    return Tooltip(
+      message: update == null ? 'About and updates' : '${update.version} is available',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => showUpdateDialog(context),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
+            decoration: BoxDecoration(border: Border(top: BorderSide(color: C.line))),
+            child: Row(children: [
+              Icon(update == null ? LucideIcons.info : LucideIcons.download, size: 13, color: color),
+              if (open) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(update == null ? 'Version $appVersion' : 'Update to ${update.version}',
+                      maxLines: 1, overflow: TextOverflow.clip, softWrap: false, style: T.sans(11.5, color: color)),
+                ),
+              ],
+            ]),
+          ),
+        ),
       ),
     );
   }
@@ -363,6 +427,7 @@ class _Sidebar extends StatelessWidget {
                     ),
                 ]),
               ),
+              _VersionRow(open: open),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                 decoration: BoxDecoration(border: Border(top: BorderSide(color: C.line))),
@@ -498,6 +563,7 @@ class _TopBar extends ConsumerWidget {
     final labels = Bp.isWideHeader(context);
     final h = host;
     final failures = h == null ? false : (ref.watch(activityProvider(h.id)).value ?? const []).take(5).any((e) => !e.ok);
+    final update = ref.watch(updateProvider) != null;
 
     return Container(
       height: 52 + touchPad(context) / 2,
@@ -524,13 +590,13 @@ class _TopBar extends ConsumerWidget {
             icon: LucideIcons.arrowUp, variant: BtnVariant.primary, size: BtnSize.md, onPressed: onDeploy, tooltip: labels ? null : 'Deploy app'),
         const SizedBox(width: 8),
         Stack(clipBehavior: Clip.none, children: [
-          IconBtn(LucideIcons.bell, tooltip: 'Activity', size: 15, onPressed: onActivity),
-          if (failures)
+          IconBtn(LucideIcons.bell, tooltip: update ? 'Activity · update available' : 'Activity', size: 15, onPressed: onActivity),
+          if (failures || update)
             Positioned(
               right: 4,
               top: 4,
               child: IgnorePointer(
-                child: Container(width: 6, height: 6, decoration: const BoxDecoration(color: C.bad, shape: BoxShape.circle)),
+                child: Container(width: 6, height: 6, decoration: BoxDecoration(color: failures ? C.bad : C.info, shape: BoxShape.circle)),
               ),
             ),
         ]),

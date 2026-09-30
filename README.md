@@ -34,6 +34,9 @@
 - **Careful with what matters.** Host keys are pinned, secrets are masked in
   previews and logs, and destroying an app means typing its name after reading
   what will go.
+- **Keeps itself current.** The app notices a new release and shows what
+  changed. On Linux it updates itself in place and restarts; on Android,
+  macOS and Windows it downloads the build.
 - **One codebase, every screen size.** Built with Flutter for Android, iOS,
   Linux, macOS and Windows, with a phone layout of its own.
 
@@ -71,7 +74,7 @@ server. `python3 tool/screenshots.py` draws them again.
 ## Installing
 
 Each [release](https://github.com/iamvivekkaushik/dokku-ui/releases) carries
-an Android APK, a Linux bundle and a macOS app.
+an Android APK, a Linux bundle, a macOS app and a Windows folder.
 
 On Linux, unpack the bundle where you want to keep it, then run the script
 inside. It adds the app to the launcher, with its icon, running from that
@@ -94,7 +97,19 @@ jsoncpp from the system, which on Debian or Ubuntu are the packages
 The macOS build is not signed with a developer identity. The first time, open
 it with right-click, **Open**. Keys are kept in the login keychain.
 
-iOS and Windows build from source; see [Building](#building).
+On Windows, unpack `dokku-console-windows-x64.zip` where you want to keep it
+and run `dokku_console.exe` inside. This build is not signed either, so
+SmartScreen stops it the first time: **More info**, then **Run anyway**. The
+Visual C++ runtime the app needs is in the folder. Keys are kept as files
+encrypted with a key the Credential Manager holds.
+
+iOS builds from source; see [Building](#building).
+
+**Updating.** The app asks GitHub for the newest release when it starts. The
+bell in the top bar and the sidebar footer say when there is one, with the
+changelog. On Linux, **Update and restart** downloads the bundle, swaps it in
+place and restarts; on Android it downloads the APK to install, on macOS the
+zip to drag over the app, on Windows the zip to unpack over the folder.
 
 ## Connecting a host
 
@@ -117,7 +132,7 @@ Everything stays on the device.
 
 | What | Where |
 | --- | --- |
-| Private keys, key passphrases, SSH passwords | The device keystore: Android Keystore, the Keychain on iOS and macOS, libsecret (GNOME Keyring, KWallet) on Linux, Credential Manager on Windows |
+| Private keys, key passphrases, SSH passwords | The device keystore: Android Keystore, the Keychain on iOS and macOS, libsecret (GNOME Keyring, KWallet) on Linux, and on Windows files encrypted with a key the Credential Manager holds |
 | Host address, port, username, pinned host key | App preferences |
 | Activity log, with secrets removed | App preferences |
 | Display preferences | App preferences |
@@ -220,7 +235,8 @@ flutter build macos --release
 
 The Linux bundle lands in `build/linux/x64/release/bundle`, install script
 included. `flutter build macos`, `ios` and `windows` need to run on those
-systems.
+systems; the Windows one wants Visual Studio with the Desktop development with
+C++ workload.
 
 The Android release build is signed with the debug key until you add your own
 [signing configuration](https://docs.flutter.dev/deployment/android#signing-the-app),
@@ -232,16 +248,19 @@ which is fine for installing it yourself but not for the Play Store.
 
 | Job | Does |
 | --- | --- |
-| `test` | `flutter analyze` and `flutter test` |
+| `test` | `flutter analyze`, `flutter test`, and a check that `CHANGELOG.md` has a section for the version in `pubspec.yaml` |
 | `android` | Builds the release APK and keeps it as a build artifact |
 | `linux` | Builds the Linux bundle, tries its install script and keeps the bundle as a build artifact |
 | `macos` | Builds the macOS app and keeps it, zipped, as a build artifact |
-| `release` | On a tag like `v1.2.0`, creates a GitHub release with all three attached |
+| `windows` | Builds the Windows app, adds the Visual C++ runtime DLLs and keeps the folder, zipped, as a build artifact |
+| `release` | On a tag like `v1.2.0`, creates a GitHub release with that version's changelog section as its notes and all four builds attached |
 
-To publish a release:
+To publish a release, turn the `Unreleased` section of `CHANGELOG.md` into the
+version with the date, set the same version in `pubspec.yaml` and in
+`lib/core/version.dart` (a test checks the three agree), commit, and tag:
 
 ```bash
-git tag v1.0.0 && git push origin v1.0.0
+git tag v1.3.0 && git push origin v1.3.0
 ```
 
 ## Testing
@@ -296,6 +315,6 @@ lib/state/         Riverpod providers: hosts, cached lookups, jobs, routing
 lib/ui/            Theme, widget kit, app shell, screens
 linux/packaging/   Launcher entry, icons and install script shipped in the Linux bundle
 docs/screenshots/  What the README shows, drawn by test/screenshots
-tool/              Draws the launcher icons and the screenshots
+tool/              Draws the launcher icons and the screenshots; reads the changelog for releases
 test/              See above
 ```

@@ -30,6 +30,10 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      # A version without release notes does not get merged, let alone tagged.
+      - name: Check the changelog has this version
+        run: |
+          python3 tool/changelog.py "$(sed -n 's/^version: *\([0-9][^+]*\).*/\1/p' pubspec.yaml)" > /dev/null
 
   android:
     needs: test
@@ -110,20 +114,60 @@ jobs:
           path: dokku-console-macos.zip
           if-no-files-found: error
 
-  # A tag like v1.2.0 creates a release with the Android, Linux and macOS builds attached.
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter build windows --release
+      # The app loads the Visual C++ runtime when it starts. Shipping those
+      # three DLLs next to it saves a fresh machine the redistributable install;
+      # System32 holds the newest ones the runner's Visual Studio put there.
+      - name: Package the folder
+        run: |
+          $release = 'build/windows/x64/runner/Release'
+          foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item "$env:SystemRoot\System32\$dll" $release
+          }
+          Move-Item $release dokku-console
+          Compress-Archive -Path dokku-console -DestinationPath dokku-console-windows-x64.zip
+      - name: Check the zip
+        run: |
+          Expand-Archive dokku-console-windows-x64.zip -DestinationPath check
+          foreach ($f in 'dokku_console.exe', 'flutter_windows.dll', 'flutter_secure_storage_windows_plugin.dll', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'data/app.so', 'data/icudtl.dat') {
+            if (-not (Test-Path "check/dokku-console/$f")) { throw "$f is missing from the zip" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dokku-console-windows
+          path: dokku-console-windows-x64.zip
+          if-no-files-found: error
+
+  # A tag like v1.2.0 creates a release with the Android, Linux, macOS and Windows builds attached.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [android, linux, macos]
+    needs: [android, linux, macos, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Release notes from the changelog
+        run: |
+          python3 tool/changelog.py "${GITHUB_REF_NAME#v}" > release-notes.md
       - uses: actions/download-artifact@v4
         with:
           pattern: dokku-console-*
           path: artifacts
           merge-multiple: true
+      # The changelog section first, then the commit list GitHub writes.
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
+          body_path: release-notes.md
           generate_release_notes: true

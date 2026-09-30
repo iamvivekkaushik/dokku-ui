@@ -289,6 +289,8 @@ class _InstallationCard extends ConsumerWidget {
     final latest = ref.watch(latestDokkuProvider).value;
     final current = _dokkuVersion(system);
     final upgradable = isNewerVersion(latest, current);
+    // Only a comparison that happened can say the host is current.
+    final upToDate = latest != null && current != null && !upgradable;
     final installer = (system.value?['installer'] ?? '').split('\n').first.trim();
 
     void review() {
@@ -303,14 +305,21 @@ class _InstallationCard extends ConsumerWidget {
         'Installation',
         trailing: upgradable
             ? Pill('upgrade available · $latest', tone: Tone.warn, mono: true, dot: false)
-            : (current == null ? null : const Pill('up to date', tone: Tone.ok, mono: true, dot: false)),
+            : (upToDate ? const Pill('up to date', tone: Tone.ok, mono: true, dot: false) : null),
       ),
+      // Nothing to review on a current host; without an answer from GitHub the
+      // upgrade stays at hand, since it cannot be ruled out.
       _ActionRow(
         first: true,
-        title: 'Upgrade Dokku on ${host.name}',
-        detail: '${current ?? '?'}${upgradable ? ' → ${latest!.replaceFirst(RegExp(r'^v'), '')}' : ''}'
-            ' · apt-get install dokku · plugin:install-dependencies --core',
-        trailing: Btn('Review upgrade', tooltip: root ? null : _needsRoot, onPressed: root ? review : null),
+        title: upToDate ? 'Dokku $current is the latest release' : 'Upgrade Dokku on ${host.name}',
+        detail: upToDate
+            ? 'Nothing to upgrade. Checked against github.com/dokku/dokku.'
+            : '${current ?? '?'}'
+                '${upgradable ? ' → ${latest!.replaceFirst(RegExp(r'^v'), '')}' : latest == null ? ' · could not reach GitHub to compare' : ''}'
+                ' · apt-get install dokku · plugin:install-dependencies --core',
+        trailing: upToDate
+            ? const SizedBox.shrink()
+            : Btn('Review upgrade', tooltip: root ? null : _needsRoot, onPressed: root ? review : null),
       ),
       _ActionRow(
         title: 'Install Dokku on a new host',

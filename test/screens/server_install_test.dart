@@ -424,10 +424,22 @@ void main() {
       await finish(tester);
     });
 
-    testWidgets('says up to date on the latest release', (tester) async {
+    testWidgets('says up to date on the latest release, and offers no upgrade', (tester) async {
       await pumpScreen(tester, ServerScreen(host: dokkuHost), answers: {'version': ok('dokku version 0.38.31\n')});
       expect(find.text('up to date'), findsOneWidget);
       expect(find.textContaining('upgrade available'), findsNothing);
+      expect(find.text('Dokku 0.38.31 is the latest release'), findsOneWidget);
+      expect(find.textContaining('Upgrade Dokku on'), findsNothing);
+      expect(button('Review upgrade'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('without an answer from GitHub it claims nothing and keeps the upgrade at hand', (tester) async {
+      await pumpScreen(tester, ServerScreen(host: rootHost), host: rootHost, latestDokku: null);
+      expect(find.text('up to date'), findsNothing);
+      expect(find.textContaining('upgrade available'), findsNothing);
+      expect(find.textContaining('could not reach GitHub to compare'), findsOneWidget);
+      expect(button('Review upgrade'), findsOneWidget);
       await finish(tester);
     });
 
