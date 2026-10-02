@@ -5,7 +5,7 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
-## Unreleased
+## 1.6.0 - 2026-10-02
 
 ### Added
 
