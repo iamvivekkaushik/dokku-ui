@@ -86,7 +86,7 @@ void main() {
 
   group('host scripts', () {
     test('are valid shell', () async {
-      for (final s in [metricsScript, systemScript, preflightScript, upgradeScript, sudoShim]) {
+      for (final s in [metricsScript, systemScript, preflightScript, pluginUpdatesScript, upgradeScript, sudoShim]) {
         final r = await _bash(['-n'], s);
         expect(r.exitCode, 0, reason: '${r.stderr}');
       }
@@ -170,6 +170,22 @@ SwapFree:        4000000 kB
       expect(m.dockerAvailable, isFalse);
       expect(m.containers, isEmpty);
       expect(m.cpuPct, isNull);
+    });
+
+    test('reads which plugins are behind their origin', () {
+      expect(
+        parsePluginUpdates('redis 8e55b9b e015292\npostgres b2b2b2b b2b2b2b\nmaintenance pinned 51cc5c3\n'
+            'letsencrypt a1a1a1a error\napt error\n\n@@end\n'),
+        {
+          'redis': PluginState.outdated,
+          'postgres': PluginState.current,
+          'maintenance': PluginState.current,
+          'letsencrypt': PluginState.unknown,
+          'apt': PluginState.unknown,
+        },
+      );
+      expect(parsePluginUpdates(''), isEmpty);
+      expect(parsePluginUpdates('@@end\n'), isEmpty);
     });
   });
 }

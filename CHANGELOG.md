@@ -15,6 +15,16 @@ not get released.
   variables on the clipboard in the chosen format; both take the variables
   listed, so a filter narrows what goes out.
 
+### Fixed
+
+- The Plugins card offered Update on every plugin. On a host connected as
+  root or a sudo user it now compares each plugin's clone with the branch
+  it tracks and offers Update only where a newer revision exists, marking
+  the version "update available"; a current plugin says "up to date", and so
+  does the card when every plugin is. A plugin pinned to a commit is left
+  alone, and one whose origin cannot be reached keeps its button. The check
+  runs again after an update.
+
 ## 1.5.0 - 2026-09-30
 
 ### Added

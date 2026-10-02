@@ -61,6 +61,49 @@ sudo -n dokku plugin:install-dependencies --core
 echo "=====> Now running $(dokku version)"
 ''';
 
+/// One line per third-party plugin: its name, the commit it is at and the tip
+/// of the branch it tracks, which is what `plugin:update` pulls. A detached
+/// checkout is `pinned`, since a pull would not move it; a clone that cannot be
+/// read or reached is `error`. The clones belong to the dokku user, so git is
+/// told to trust them whoever runs this. Core plugins are not clones.
+const pluginUpdatesScript = r'''for d in /var/lib/dokku/plugins/available/*/; do
+  [ -d "$d/.git" ] || continue
+  n=$(basename "$d")
+  g="git -c safe.directory=* -c safe.directory=${d%/} -C $d"
+  head=$($g rev-parse HEAD 2>/dev/null) || { echo "$n error"; continue; }
+  branch=$($g rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ -z "$branch" ] || [ "$branch" = HEAD ]; then echo "$n pinned $head"; continue; fi
+  remote=$(timeout 20 $g ls-remote --quiet origin "refs/heads/$branch" 2>/dev/null | cut -f1)
+  echo "$n $head ${remote:-error}"
+done
+echo "@@end"
+''';
+
+/// Whether a plugin's origin has moved on since it was installed or updated.
+enum PluginState {
+  current,
+  outdated,
+
+  /// Not checked, or the check failed for this plugin or could not reach its origin.
+  unknown,
+}
+
+/// Plugin name to state, from [pluginUpdatesScript] output.
+Map<String, PluginState> parsePluginUpdates(String out) {
+  final res = <String, PluginState>{};
+  for (final line in out.split('\n')) {
+    final f = line.trim().split(_ws);
+    if (f.length < 2 || f[0].startsWith('@@')) continue;
+    res[f[0]] = switch (f[1]) {
+      'error' => PluginState.unknown,
+      'pinned' => PluginState.current,
+      _ when f.length < 3 || f[2] == 'error' => PluginState.unknown,
+      _ => f[1] == f[2] ? PluginState.current : PluginState.outdated,
+    };
+  }
+  return res;
+}
+
 final _marker = RegExp(r'^@@(\w+)$');
 
 /// Splits "@@section" delimited output into section → trimmed body.

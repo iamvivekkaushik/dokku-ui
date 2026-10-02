@@ -313,12 +313,70 @@ void main() {
       await finish(tester);
     });
 
+    testWidgets('offers an update only to a plugin whose clone is behind its origin', (tester) async {
+      await pumpScreen(tester, ServerScreen(host: rootHost), host: rootHost, answers: {
+        'plugin:list': ok('  apps                 0.35.20 enabled    dokku core apps plugin\n'
+            '  letsencrypt          0.20.3 enabled    dokku letsencrypt plugin\n'
+            '  postgres             1.42.0 enabled    dokku postgres service plugin\n'
+            '  redis                2.1.0 enabled    dokku redis service plugin\n'),
+        '@plugin-updates': ok('letsencrypt a1a1a1a error\npostgres b2b2b2b b2b2b2b\nredis 8e55b9b e015292\n@@end\n'),
+      });
+      expect(find.text('2.1.0 · update available'), findsOneWidget);
+      expect(find.text('1.42.0'), findsOneWidget);
+      expect(find.text('up to date'), findsOneWidget, reason: 'postgres is current');
+      expect(button('Update all'), findsOneWidget, reason: 'something can still be updated');
+      // letsencrypt could not be checked, so its update is not ruled out; postgres needs none.
+      final rows = [for (final b in tester.widgetList<Btn>(button('Update'))) b];
+      expect(rows, hasLength(2));
+      Finder pluginOf(Finder f) => find.ancestor(of: f, matching: find.byType(PanelRow));
+      expect(find.descendant(of: pluginOf(find.text('postgres')), matching: button('Update')), findsNothing);
+      expect(find.descendant(of: pluginOf(find.text('letsencrypt')), matching: button('Update')), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('says so when every plugin is current, and checks again after an update', (tester) async {
+      final ssh = await pumpScreen(tester, ServerScreen(host: rootHost), host: rootHost);
+      expect(find.text('2.1.0 · update available'), findsOneWidget);
+      expect(find.text('up to date'), findsNothing);
+
+      // The plugin's origin has moved on; the clone is pulled, and the next check finds it current.
+      ssh.fixtures['@plugin-updates'] = ok('redis e015292 e015292\n@@end\n');
+      await press(tester, button('Update'));
+      expect(ssh.changes, [['plugin:update', 'redis']]);
+      expect(find.text('2.1.0'), findsOneWidget);
+      expect(find.text('up to date'), findsNWidgets(2), reason: 'the row and the card header');
+      expect(button('Update'), findsNothing);
+      expect(button('Update all'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a plugin pinned to a commit is not offered an update', (tester) async {
+      await pumpScreen(tester, ServerScreen(host: rootHost), host: rootHost, answers: {
+        '@plugin-updates': ok('redis pinned 51cc5c3\n@@end\n'),
+      });
+      expect(find.text('2.1.0'), findsOneWidget);
+      expect(find.text('up to date'), findsNWidgets(2));
+      expect(button('Update'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('a failed check keeps the update at hand', (tester) async {
+      await pumpScreen(tester, ServerScreen(host: rootHost), host: rootHost, answers: {
+        '@plugin-updates': failed('sh: 1: git: not found\n'),
+      });
+      expect(find.text('2.1.0'), findsOneWidget);
+      expect(find.text('up to date'), findsNothing);
+      expect(button('Update'), findsOneWidget);
+      expect(button('Update all'), findsOneWidget);
+      await finish(tester);
+    });
+
     testWidgets('offers to enable a disabled plugin', (tester) async {
       final ssh = await pumpScreen(tester, ServerScreen(host: rootHost), host: rootHost, answers: {
         'plugin:list': ok('  apps                 0.35.20 enabled    dokku core apps plugin\n'
             '  redis                2.1.0 disabled    dokku redis service plugin\n'),
       });
-      expect(find.text('2.1.0 · disabled'), findsOneWidget);
+      expect(find.text('2.1.0 · disabled · update available'), findsOneWidget);
       expect(find.text('Show 1 core plugin'), findsOneWidget);
       await press(tester, button('Enable'));
       expect(ssh.changes, [['plugin:enable', 'redis']]);

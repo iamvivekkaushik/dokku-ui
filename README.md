@@ -119,7 +119,7 @@ zip to drag over the app, on Windows the zip to unpack over the folder.
 | Sign in as | What works |
 | --- | --- |
 | `dokku` | Everything Dokku allows remotely: apps, deploys, config, domains, certificates, storage, datastores, logs. |
-| `root`, or a sudo user with **Run dokku with sudo** | All of the above, plus SSH key management, plugin install and update, Dokku upgrade and install, host CPU, memory and disk metrics, per-container metrics, the interactive SSH terminal, and Store templates that hand their storage to the uid the image runs as. |
+| `root`, or a sudo user with **Run dokku with sudo** | All of the above, plus SSH key management, plugin install and update with a check for newer revisions, Dokku upgrade and install, host CPU, memory and disk metrics, per-container metrics, the interactive SSH terminal, and Store templates that hand their storage to the uid the image runs as. |
 
 Dokku itself refuses `ssh-keys:add/remove` and `plugin:install/update` for the
 `dokku` user, so those buttons are disabled with an explanation in that mode. A

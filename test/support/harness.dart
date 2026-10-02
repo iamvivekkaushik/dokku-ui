@@ -131,7 +131,9 @@ class FakeSsh extends SshService {
             ? '@system'
             : cmd == preflightScript
                 ? '@preflight'
-                : null;
+                : cmd == pluginUpdatesScript
+                    ? '@plugin-updates'
+                    : null;
     return key == null ? ok('') : fixtures[key] ?? failed('no fixture for $key');
   }
 

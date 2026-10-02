@@ -263,6 +263,17 @@ final systemProvider = FutureProvider.autoDispose.family<Map<String, String>, St
   return out;
 });
 
+/// Which third-party plugins have a newer revision at their origin. Only for
+/// hosts connected with a shell user: the dokku user cannot read the clones.
+final pluginUpdatesProvider = FutureProvider.autoDispose.family<Map<String, PluginState>, String>((ref, hostId) async {
+  ref.watch(generationProvider(hostId));
+  final host = _host(ref, hostId);
+  if (!host.hasShell) return const {};
+  _cacheFor(ref, const Duration(minutes: 5));
+  final r = await ref.watch(sshServiceProvider).exec(host, pluginUpdatesScript, timeout: const Duration(minutes: 2));
+  return parsePluginUpdates(r.stdout);
+});
+
 /// What the install wizard checks before it runs.
 final preflightProvider = FutureProvider.autoDispose.family<Map<String, String>, String>((ref, hostId) async {
   final host = _host(ref, hostId);

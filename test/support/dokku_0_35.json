@@ -364,6 +364,11 @@
   "stdout": "@@os\nUbuntu 24.04.2 LTS\n@@kernel\n7.0.0-34-generic\n@@arch\nx86_64\n@@hostname\n76b36e85bf8c\n@@docker\n29.8.1\n@@uptime\n6943.86 48273.21\n@@installer\nnot-found\nabsent\n@@registries\n@@end\n",
   "stderr": ""
  },
+ "@plugin-updates": {
+  "code": 0,
+  "stdout": "redis 8e55b9b74cd4b1a5b33751e7ed7bdf6200bc4888 e015292f8dbdf2fb2352db19a2e6068e763a2be8\n@@end\n",
+  "stderr": ""
+ },
  "@preflight": {
   "code": 0,
   "stdout": "@@os\nubuntu|24.04|noble|Ubuntu 24.04.2 LTS\n@@arch\nx86_64\n@@user\nroot\n0\nsudo-ok\n@@nginx\n0\n@@keys\n3\n@@dokku\ndokku version 0.35.20\n@@ip\n172.17.0.3\n@@mem\nMemTotal:       16265148 kB\n@@end\n",

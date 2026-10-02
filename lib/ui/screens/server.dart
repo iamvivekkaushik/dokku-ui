@@ -450,6 +450,13 @@ class _PluginsCardState extends ConsumerState<_PluginsCard> with Busy {
     final third = [for (final p in all) if (!p.core) p];
     final core = [for (final p in all) if (p.core) p];
     final shown = _showCore ? [...third, ...core] : third;
+    final updates = ref.watch(pluginUpdatesProvider(host.id));
+    final states = updates.value ?? const <String, PluginState>{};
+    // Nothing is offered while the first check runs, so no button appears only to vanish.
+    final checking = updates.isLoading && !updates.hasValue;
+    PluginState stateOf(PluginInfo p) => states[p.name] ?? PluginState.unknown;
+    // An update that could not be ruled out stays at hand, as with the Dokku upgrade.
+    final allCurrent = updates.hasValue && third.isNotEmpty && third.every((p) => stateOf(p) == PluginState.current);
     final url = _url.text.trim();
     final name = _pluginName(url).isEmpty ? 'plugin' : _pluginName(url);
 
@@ -489,29 +496,31 @@ class _PluginsCardState extends ConsumerState<_PluginsCard> with Busy {
     return Panel.column(children: [
       PanelHead(
         'Plugins',
-        trailing: Btn(
-          'Update all',
-          tooltip: root ? null : _needsRoot,
-          loading: isBusy('update-all'),
-          onPressed: root
-              ? () => busy(
-                    'update-all',
-                    () => runDokku(
-                      context,
-                      ref,
-                      host,
-                      ['plugin:update'],
-                      title: 'Update all plugins',
-                      timeout: const Duration(minutes: 30),
-                      ask: const Confirm(
-                        title: 'Update all plugins?',
-                        body: 'Pulls the latest revision of every third-party plugin and re-runs their install hooks.',
-                        label: 'Update all',
-                      ),
-                    ),
-                  )
-              : null,
-        ),
+        trailing: allCurrent
+            ? const Pill('up to date', tone: Tone.ok, mono: true, dot: false)
+            : Btn(
+                'Update all',
+                tooltip: root ? null : _needsRoot,
+                loading: isBusy('update-all'),
+                onPressed: root
+                    ? () => busy(
+                          'update-all',
+                          () => runDokku(
+                            context,
+                            ref,
+                            host,
+                            ['plugin:update'],
+                            title: 'Update all plugins',
+                            timeout: const Duration(minutes: 30),
+                            ask: const Confirm(
+                              title: 'Update all plugins?',
+                              body: 'Pulls the latest revision of every third-party plugin and re-runs their install hooks.',
+                              label: 'Update all',
+                            ),
+                          ),
+                        )
+                    : null,
+              ),
       ),
       if (plugins.loading) const LoadingRows(rows: 1),
       if (plugins.error != null) EmptyBox('Could not list the plugins: ${plugins.errorText}'),
@@ -522,10 +531,14 @@ class _PluginsCardState extends ConsumerState<_PluginsCard> with Busy {
           first: i == 0 && third.isNotEmpty,
           child: _PluginRow(
             p,
+            outdated: stateOf(p) == PluginState.outdated,
             actions: p.core
                 ? const []
                 : [
-                    act('Update', 'update-${p.name}', ['plugin:update', p.name], timeout: const Duration(minutes: 15)),
+                    if (stateOf(p) == PluginState.current)
+                      Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('up to date', style: T.tiny))
+                    else if (!checking)
+                      act('Update', 'update-${p.name}', ['plugin:update', p.name], timeout: const Duration(minutes: 15)),
                     act(p.enabled ? 'Disable' : 'Enable', 'toggle-${p.name}',
                         [p.enabled ? 'plugin:disable' : 'plugin:enable', p.name]),
                     act(
@@ -582,9 +595,10 @@ class _PluginsCardState extends ConsumerState<_PluginsCard> with Busy {
 }
 
 class _PluginRow extends StatelessWidget {
-  const _PluginRow(this.plugin, {required this.actions});
+  const _PluginRow(this.plugin, {required this.actions, this.outdated = false});
   final PluginInfo plugin;
   final List<Widget> actions;
+  final bool outdated;
 
   @override
   Widget build(BuildContext context) {
@@ -594,11 +608,11 @@ class _PluginRow extends StatelessWidget {
       const SizedBox(height: 2),
       Text(p.description, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.meta),
     ]);
-    final version = Text('${p.version}${p.enabled ? '' : ' · disabled'}',
-        style: T.mono(10.5, color: p.enabled ? C.muted : Tone.warn.color));
+    final notes = [if (!p.enabled) 'disabled', if (outdated) 'update available'];
+    final version = Text([p.version, ...notes].join(' · '), style: T.mono(10.5, color: notes.isEmpty ? C.muted : Tone.warn.color));
     final trailing = p.core
         ? Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text('core', style: T.tiny))
-        : Wrap(spacing: 4, runSpacing: 4, children: actions);
+        : Wrap(spacing: 4, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: actions);
 
     return LayoutBuilder(builder: (context, box) {
       // Three buttons do not fit beside the name on a phone.
