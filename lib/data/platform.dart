@@ -42,8 +42,11 @@ class SecureStore implements KeyValueStore {
   Future<void> delete(String key) => _storage.delete(key: key);
 }
 
+/// As much as a key, a certificate or a .env file could reasonably be.
+const maxTextFileBytes = 256 * 1024;
+
 /// Lets the user pick a small text file (a key, a certificate, a .env file).
-Future<({String name, String text})?> pickTextFile({int maxBytes = 256 * 1024}) async {
+Future<({String name, String text})?> pickTextFile({int maxBytes = maxTextFileBytes}) async {
   final file = await FilePicker.pickFile();
   if (file == null) return null;
   final bytes = await file.readAsBytes();

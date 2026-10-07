@@ -167,7 +167,7 @@ only the path; the key stays in its file.
 | Deploys | Deploy app, app Deploys | `git:sync` `git:from-image` `git:set` `git:unlock` `builds:list` `builds:output` `builds:cancel` `ps:rebuild` |
 | Builders | app Build | `builder:set` `builder:report` `builder-dockerfile:set` `buildpacks:add` `set` `remove` `clear` |
 | Processes | app Processes | `ps:scale` `start` `stop` `restart` `rebuild` `ps:set` `run` `run:detached` `enter` `cron:list` `cron:run` |
-| Config | app Environment | `config:export` `config:set` `config:unset` (with `--no-restart`), `.env` import, export to a file or the clipboard |
+| Config | app Environment | `config:export` `config:set` `config:unset` (with `--no-restart`), `.env` import from a file or the clipboard (base64 values decoded on request), export to a file or the clipboard |
 | Routing | app Routing | `domains:add` `remove` `report` `certs:add` `remove` `report` `letsencrypt:enable` `disable` `auto-renew` `proxy:set` `enable` `disable` `ports:add` `remove` `nginx:set` |
 | Storage and network | app Storage & network | `storage:mount` `unmount` `list` `ensure-directory` `docker-options:add` `remove` `report` `network:set` `create` `report` |
 | Resources | app Processes | `resource:limit` `reserve` `limit-clear` `reserve-clear` `checks:run` `enable` `skip` `disable` `scheduler:set` |

@@ -402,6 +402,24 @@ List<MapEntry<String, String>> parseEnvFile(String text) {
   return out;
 }
 
+final _lineBreaks = RegExp(r'[\r\n]+');
+
+/// Decodes values that are base64, as `config:set --encoded` takes them. Line
+/// breaks inside a value are ignored, as Dokku's decoder ignores them. The
+/// keys whose value is not base64, or is base64 of something other than text,
+/// come back in [bad] and are left out: such a value could not be sent back.
+({List<MapEntry<String, String>> vars, List<String> bad}) decodeEnvValues(Iterable<MapEntry<String, String>> vars) {
+  final out = <MapEntry<String, String>>[], bad = <String>[];
+  for (final e in vars) {
+    try {
+      out.add(MapEntry(e.key, utf8.decode(base64.decode(base64.normalize(e.value.replaceAll(_lineBreaks, '').trim())))));
+    } on FormatException {
+      bad.add(e.key);
+    }
+  }
+  return (vars: out, bad: bad);
+}
+
 String envQuote(String v) => RegExp(r'^[\w./:@-]*$').hasMatch(v) ? v : "'${v.replaceAll("'", r"'\''")}'";
 
 final _secretKey =

@@ -275,6 +275,23 @@ URL=postgres://u:p@h:5432/db?sslmode=require
     expect(isNewerVersion('', '0.35.20'), isFalse);
   });
 
+  test('decodes base64 values and names the ones that are not', () {
+    final (:vars, :bad) = decodeEnvValues([
+      const MapEntry('A', 'aGVsbG8gd29ybGQ='),
+      const MapEntry('B', 'aGk'),
+      const MapEntry('C', ''),
+      const MapEntry('D', 'not base64!'),
+      const MapEntry('E', ' aGk= '),
+      const MapEntry('F', 'aGVsbG8-d29ybGQ'),
+      const MapEntry('G', 'aGVs\r\nbG8=\n'),
+      const MapEntry('H', '/w=='),
+    ]);
+    expect(vars.map((e) => [e.key, e.value]), [
+      ['A', 'hello world'], ['B', 'hi'], ['C', ''], ['E', 'hi'], ['F', 'hello>world'], ['G', 'hello'],
+    ]);
+    expect(bad, ['D', 'H'], reason: 'garbage, and base64 of bytes that are not text');
+  });
+
   group('format', () {
     final now = DateTime.utc(2026, 9, 29, 12);
     test('relative time from epoch seconds, milliseconds and ISO strings', () {

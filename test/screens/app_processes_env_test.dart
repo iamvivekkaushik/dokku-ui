@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dokku_console/data/models.dart';
+import 'package:dokku_console/data/ssh_service.dart';
 import 'package:dokku_console/ui/screens/app/env.dart';
 import 'package:dokku_console/ui/screens/app/processes.dart';
 import 'package:dokku_console/ui/shell/terminal.dart';
@@ -43,15 +45,49 @@ Future<void> _type(WidgetTester tester, Finder field, String text) async {
 
 String _b64(String value) => base64.encode(utf8.encode(value));
 
-/// Replaces the clipboard with a callback for what was last copied.
-String? Function() _clipboard(WidgetTester tester) {
+/// Replaces the clipboard: it holds [text], reading it fails with [error] if
+/// given, and the callback says what was last copied.
+String? Function() _clipboard(WidgetTester tester, {String? text, Object? error}) {
   String? copied;
   tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
     if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String?;
+    if (call.method == 'Clipboard.getData') {
+      if (error != null) throw error;
+      return text == null ? null : {'text': text};
+    }
     return null;
   });
   addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
   return () => copied;
+}
+
+/// Holds every change, and the first read of the config vars, until the test lets them finish.
+class _SlowSsh extends FakeSsh {
+  _SlowSsh(super.fixtures);
+
+  final readGate = Completer<void>();
+  final _waiting = <Completer<void>>[];
+
+  /// Lets the change that is running now finish.
+  Future<void> finishOne(WidgetTester tester) async {
+    _waiting.removeAt(0).complete();
+    await settle(tester, frames: 3);
+  }
+
+  @override
+  Future<ExecResult> dokku(Host h, List<String> args, {List<int>? stdin, Duration timeout = const Duration(minutes: 2)}) async {
+    if (args.first == 'config:export') await readGate.future;
+    return super.dokku(h, args, stdin: stdin, timeout: timeout);
+  }
+
+  @override
+  Future<RemoteStream> dokkuStream(Host h, List<String> args,
+      {Pty? pty, List<int>? stdin, required void Function(String chunk, bool isStderr) onData}) async {
+    final gate = Completer<void>();
+    _waiting.add(gate);
+    await gate.future;
+    return super.dokkuStream(h, args, pty: pty, stdin: stdin, onData: onData);
+  }
 }
 
 final class _PickedFile extends PlatformFile {
@@ -543,6 +579,30 @@ void main() {
       await _press(tester, find.text('Add variable'));
     }
 
+    const export = 'config:export --format json demo-app';
+
+    /// Changes what the server answers from now on, as the Dokku CLI would have; null removes a key.
+    void serverSets(FakeSsh ssh, Map<String, String?> changes) {
+      final vars = jsonDecode(ssh.fixtures[export]!.stdout) as Map<String, dynamic>;
+      for (final e in changes.entries) {
+        if (e.value == null) {
+          vars.remove(e.key);
+        } else {
+          vars[e.key] = e.value;
+        }
+      }
+      ssh.fixtures[export] = ok(jsonEncode(vars));
+    }
+
+    Btn refreshBtn(WidgetTester tester) => tester.widget<Btn>(find.byWidgetPredicate((w) => w is Btn && w.tooltip == 'Refresh'));
+
+    Future<void> editValue(WidgetTester tester, String shown, String value) async {
+      await _press(tester, find.text(shown));
+      await tester.enterText(find.descendant(of: find.byType(AppDialog), matching: find.byType(AppInput)), value);
+      await settle(tester, frames: 2);
+      await _press(tester, find.text('Update value'));
+    }
+
     testAtAllSizes('lists variables with secrets masked and system ones hidden', (tester, size) async {
       final ssh = await pumpScreen(tester, _env(), size: size);
       expect(find.text('Config vars · 5'), findsOneWidget);
@@ -880,6 +940,220 @@ void main() {
 
       await _press(tester, find.byTooltip('Dismiss'));
       expect(find.textContaining('Could not read that file.'), findsNothing);
+    });
+
+    testWidgets('imports from the clipboard', (tester) async {
+      _clipboard(tester, text: 'GREETING=hello\nexport MODE="dev"\n');
+      final ssh = await pumpScreen(tester, _env());
+      await _press(tester, find.text('Paste'));
+      expect(find.text('From the clipboard'), findsOneWidget);
+      expect(find.textContaining('2 variables found.'), findsOneWidget);
+
+      await _press(tester, find.text('Merge'));
+      expect(find.text('GREETING'), findsOneWidget);
+      expect(find.text('hello'), findsOneWidget);
+      expect(find.text('dev'), findsOneWidget);
+      expect(find.text('new'), findsNWidgets(2));
+      expect(ssh.changes, isEmpty);
+
+      await _press(tester, find.text('Save changes'));
+      expect(ssh.changes, [['config:set', '--encoded', 'demo-app', 'GREETING=${_b64('hello')}', 'MODE=${_b64('dev')}']]);
+      await finish(tester);
+    });
+
+    testWidgets('an empty clipboard opens the dialog to paste into', (tester) async {
+      _clipboard(tester);
+      await pumpScreen(tester, _env());
+      await _press(tester, find.text('Paste'));
+      expect(find.textContaining('0 variables found.'), findsOneWidget);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Merge')).onPressed, isNull);
+
+      await tester.enterText(find.descendant(of: find.byType(AppDialog), matching: find.byType(AppInput)), 'ONLY=this');
+      await settle(tester, frames: 2);
+      expect(find.textContaining('1 variable found.'), findsOneWidget);
+      await _press(tester, find.text('Merge'));
+      expect(find.text('ONLY'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('base64 values are decoded on import when asked', (tester) async {
+      final ssh = await pumpScreen(tester, _env());
+      files.next = _PickedFile('encoded.env', 'MOTTO=aGVsbG8gd29ybGQ=\nBROKEN=not base64!\n');
+      await _press(tester, find.text('Import .env'));
+      expect(find.textContaining('2 variables found.'), findsOneWidget);
+      final toggle = find.descendant(of: find.byType(AppDialog), matching: find.byType(AppSwitch));
+      final field = find.descendant(of: find.byType(AppDialog), matching: find.byType(AppInput));
+
+      await _press(tester, toggle);
+      expect(find.text('1 value could not be decoded as base64 text: BROKEN.'), findsOneWidget);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Merge')).onPressed, isNull);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Replace all')).onPressed, isNull);
+
+      await _press(tester, toggle);
+      expect(find.textContaining('2 variables found.'), findsOneWidget, reason: 'off again, the values are taken as they are');
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Merge')).onPressed, isNotNull);
+
+      await _press(tester, toggle);
+      await tester.enterText(field, 'BLOB=/w==\nBROKEN=not base64!\n');
+      await settle(tester, frames: 2);
+      expect(find.text('2 values could not be decoded as base64 text: BLOB, BROKEN.'), findsOneWidget);
+
+      // Replace all takes the decoded values and drops the rest, like a plain file.
+      await tester.enterText(field, 'MOTTO=aGVsbG8gd29ybGQ=\nLOG_LEVEL=ZGVidWc=\n');
+      await settle(tester, frames: 2);
+      expect(find.textContaining('2 variables found.'), findsOneWidget);
+      await _press(tester, find.text('Replace all'));
+      expect(find.text('hello world'), findsOneWidget, reason: 'the decoded value is staged');
+      expect(find.text('debug'), findsOneWidget);
+      expect(find.text('aGVsbG8gd29ybGQ='), findsNothing);
+      expect(find.text('will unset: DATABASE_URL JWT_SIGNING_KEY NODE_ENV REDIS_URL'), findsOneWidget);
+      expect(ssh.changes, isEmpty);
+      await finish(tester);
+    });
+
+    testWidgets('a clipboard with too much text is refused like a file', (tester) async {
+      _clipboard(tester, text: 'A=${'x' * 300000}\n');
+      await pumpScreen(tester, _env());
+      await _press(tester, find.text('Paste'));
+      expect(find.byType(AppDialog), findsNothing);
+      expect(find.text('The clipboard holds too much text to be a config file.'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a clipboard that cannot be read is reported like a file', (tester) async {
+      _clipboard(tester, error: PlatformException(code: 'Clipboard error', message: 'Unable to open clipboard'));
+      await pumpScreen(tester, _env());
+      await _press(tester, find.text('Paste'));
+      expect(find.byType(AppDialog), findsNothing);
+      expect(find.text('Could not read the clipboard. Unable to open clipboard'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testAtAllSizes('refresh reads the list again and keeps what is staged', (tester, size) async {
+      final ssh = await pumpScreen(tester, _env(), size: size);
+      await add(tester, 'FEATURE_X', 'on');
+      await editValue(tester, 'info', 'debug');
+      serverSets(ssh, {'NEW_FROM_CLI': 'yes'});
+      expect(find.text('NEW_FROM_CLI'), findsNothing, reason: 'nothing re-reads on its own');
+
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.text('NEW_FROM_CLI'), findsOneWidget);
+      expect(find.text('Config vars · 7'), findsOneWidget);
+      expect(find.text('new'), findsOneWidget);
+      expect(find.text('edited'), findsOneWidget);
+      expect(find.text('debug'), findsOneWidget);
+      expect(save(tester).onPressed, isNotNull);
+      expect(ssh.ran.where((c) => c.join(' ') == export), hasLength(2));
+      expect(ssh.changes, isEmpty);
+    });
+
+    testWidgets('a staged value the server now has is no longer a change', (tester) async {
+      final ssh = await pumpScreen(tester, _env());
+      await editValue(tester, 'info', 'debug');
+      expect(find.text('edited'), findsOneWidget);
+
+      serverSets(ssh, {'LOG_LEVEL': 'debug'});
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.text('edited'), findsNothing);
+      expect(find.text('debug'), findsOneWidget);
+      expect(save(tester).onPressed, isNull);
+      expect(find.text('Discard'), findsNothing);
+
+      serverSets(ssh, {'LOG_LEVEL': 'warn'});
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.text('warn'), findsOneWidget);
+      expect(find.text('edited'), findsNothing, reason: 'the old staged value does not come back');
+      await finish(tester);
+    });
+
+    testWidgets('a removal of a variable the server no longer has is dropped', (tester) async {
+      final ssh = await pumpScreen(tester, _env());
+      await _press(tester, _inRow('NODE_ENV', find.byTooltip('Delete variable')));
+      expect(find.text('will unset: NODE_ENV'), findsOneWidget);
+
+      serverSets(ssh, {'NODE_ENV': null});
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.textContaining('will unset'), findsNothing);
+      expect(find.text('Config vars · 4'), findsOneWidget);
+      expect(save(tester).onPressed, isNull);
+
+      serverSets(ssh, {'NODE_ENV': 'staging'});
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.text('NODE_ENV'), findsOneWidget, reason: 'no stale removal hides the row');
+      expect(find.text('staging'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a failed refresh keeps the list and says so', (tester) async {
+      final ssh = await pumpScreen(tester, _env());
+      expect(find.text('Config vars · 5'), findsOneWidget);
+
+      ssh.fixtures[export] = failed('ssh: connect to host 203.0.113.10 port 22: Connection refused\n');
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.text('LOG_LEVEL'), findsOneWidget);
+      expect(find.text('Config vars · 5'), findsOneWidget);
+      expect(find.textContaining('Could not read the config vars again.'), findsOneWidget);
+      expect(find.textContaining('Connection refused'), findsOneWidget);
+      expect(refreshBtn(tester).loading, isFalse);
+      expect(refreshBtn(tester).onPressed, isNotNull);
+      expect(tester.widget<Btn>(find.widgetWithText(Btn, 'Import .env')).onPressed, isNotNull);
+
+      await _press(tester, find.byTooltip('Dismiss'));
+      expect(find.textContaining('Could not read the config vars again.'), findsNothing);
+
+      ssh.fixtures[export] = loadFixtures()[export]!;
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.textContaining('Could not read'), findsNothing);
+      await finish(tester);
+    });
+
+    testWidgets('refresh is the retry after a failed first read', (tester) async {
+      final ssh = await pumpScreen(tester, _env(), answers: {export: failed('Connection refused\n')});
+      expect(find.textContaining('Could not read the config vars.'), findsOneWidget);
+      expect(refreshBtn(tester).onPressed, isNotNull);
+
+      // Failing again: the card error is the one place that says so.
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.textContaining('Could not read the config vars.'), findsOneWidget);
+      expect(find.textContaining('Could not read the config vars again.'), findsNothing);
+      expect(refreshBtn(tester).onPressed, isNotNull);
+
+      ssh.fixtures[export] = loadFixtures()[export]!;
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.text('Config vars · 5'), findsOneWidget);
+      expect(find.textContaining('Could not read'), findsNothing, reason: 'no banner on top of the card error');
+      await finish(tester);
+    });
+
+    testWidgets('refresh waits for the first read and for a save', (tester) async {
+      late _SlowSsh slow;
+      await pumpScreen(tester, _env(), fake: (f) => slow = _SlowSsh(f));
+      expect(find.byType(LoadingRows), findsOneWidget);
+      expect(refreshBtn(tester).onPressed, isNull, reason: 'nothing to read again while the first read is in flight');
+      slow.readGate.complete();
+      await settle(tester);
+      expect(find.text('Config vars · 5'), findsOneWidget);
+      expect(refreshBtn(tester).onPressed, isNotNull);
+
+      await add(tester, 'FEATURE_X', 'on');
+      await _press(tester, find.text('Save changes'));
+      expect(save(tester).loading, isTrue);
+      expect(refreshBtn(tester).onPressed, isNull, reason: 'a save reads the list again itself');
+      await slow.finishOne(tester);
+      await settle(tester);
+      expect(save(tester).loading, isFalse);
+      expect(refreshBtn(tester).onPressed, isNotNull);
+      expect(slow.changes, [['config:set', '--encoded', 'demo-app', 'FEATURE_X=${_b64('on')}']]);
+      await finish(tester);
+    });
+
+    testWidgets('output that cannot be read on refresh is the card error, not a banner', (tester) async {
+      final ssh = await pumpScreen(tester, _env());
+      ssh.fixtures[export] = ok('{"LOG_LEVEL":');
+      await _press(tester, find.byTooltip('Refresh'));
+      expect(find.textContaining('could not be read'), findsOneWidget);
+      expect(find.textContaining('Could not read the config vars again.'), findsNothing);
+      await finish(tester);
     });
 
     testWidgets('exports what is listed as env, json or shell', (tester) async {

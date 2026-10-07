@@ -169,9 +169,37 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
     try {
       final file = await pickTextFile();
       if (file == null || !mounted) return;
-      final choice = await showAppDialog<_Import>(context, (_) => _ImportDialog(file.name, file.text));
-      if (choice == null || !mounted) return;
-      setState(() {
+      await _stageImport(file.name, file.text);
+    } on Object catch (e) {
+      if (mounted) setState(() => _problem = 'Could not read that file. ${e is FormatException ? e.message : e}');
+    }
+  }
+
+  /// The clipboard goes through the same dialog, so the text can be looked
+  /// over first, or pasted into the dialog when the clipboard had none.
+  Future<void> _paste() async {
+    setState(() => _problem = null);
+    final String text;
+    try {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    } on Object catch (e) {
+      // Windows answers with an error while another program holds the clipboard open.
+      if (mounted) setState(() => _problem = 'Could not read the clipboard. ${e is PlatformException ? e.message ?? e.code : e}');
+      return;
+    }
+    if (!mounted) return;
+    // The same bound as a picked file: the dialog re-parses the whole text on every keystroke.
+    if (text.length > maxTextFileBytes) {
+      setState(() => _problem = 'The clipboard holds too much text to be a config file.');
+      return;
+    }
+    await _stageImport('From the clipboard', text);
+  }
+
+  Future<void> _stageImport(String source, String text) async {
+    final choice = await showAppDialog<_Import>(context, (_) => _ImportDialog(source, text));
+    if (choice == null || !mounted) return;
+    setState(() {
         if (choice.replace) {
           final kept = {for (final v in choice.vars) v.key};
           _pending.clear();
@@ -183,9 +211,6 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
           _stage(v.key, v.value);
         }
       });
-    } on Object catch (e) {
-      if (mounted) setState(() => _problem = 'Could not read that file. ${e is FormatException ? e.message : e}');
-    }
   }
 
   /// [rows] in the chosen format, for a file or the clipboard.
@@ -242,6 +267,28 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
           _pending.removeWhere((k, v) => set[k] == v);
           if (unsetDone) _removed.removeWhere(unset.contains);
         });
+      });
+
+  /// Reads the list again, for variables set outside this app: the Dokku CLI,
+  /// a datastore link. What is staged here stays staged.
+  Future<void> _refresh() => busy('refresh', () async {
+        // The query the build watches, so the provider keeps its last value and the rows stay on screen meanwhile.
+        final query = dokkuProvider(DokkuQuery(widget.host.id, _exportArgs));
+        setState(() => _problem = null);
+        try {
+          final fresh = _parseConfig(await ref.refresh(query.future));
+          if (!mounted) return;
+          setState(() {
+            // As when staging: a value the server now has is not a change, and a variable it no longer has is nothing to unset.
+            _pending.removeWhere((k, v) => fresh[k] == v);
+            _removed.removeWhere((k) => !fresh.containsKey(k));
+          });
+        } on FormatException {
+          // The card reports a list that could not be read itself.
+        } on Object catch (e) {
+          // The rows keep their last values; with none on screen, the card reports the failure itself.
+          if (mounted && Q.from(ref.read(query), _parseConfig).hasData) setState(() => _problem = 'Could not read the config vars again. $e');
+        }
       });
 
   @override
@@ -363,7 +410,11 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
               width: stacked ? double.infinity : 180,
               child: AppInput(controller: _filter, mono: false, hint: 'Filter keys and values', onChanged: (_) => setState(() {})),
             ),
-            Btn('Import .env', onPressed: env.hasData ? _import : null),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Btn('Import .env', tooltip: 'Imports variables from a file.', onPressed: env.hasData ? _import : null),
+              const SizedBox(width: 4),
+              Btn('Paste', tooltip: 'Imports variables from the clipboard.', onPressed: env.hasData ? _paste : null),
+            ]),
             // Both take the variables listed, so a filter narrows what goes out.
             Row(mainAxisSize: MainAxisSize.min, children: [
               Btn('Export', tooltip: 'Saves the variables listed as a file.', onPressed: env.hasData ? () => _export(rows) : null),
@@ -389,6 +440,13 @@ class _EnvTabState extends ConsumerState<EnvTab> with Busy {
                 selected: _showSystem,
                 tooltip: 'Shows the variables Dokku sets itself, such as GIT_REV.',
                 onPressed: () => setState(() => _showSystem = !_showSystem)),
+            // Not gated on data: after a failed first read, this is the retry.
+            Btn('',
+                icon: LucideIcons.refreshCw,
+                square: true,
+                tooltip: 'Refresh',
+                loading: isBusy('refresh'),
+                onPressed: env.loading || isBusy('save') ? null : _refresh),
           ]),
         ),
         if (_problem != null)
@@ -516,8 +574,10 @@ class _EditValueDialogState extends State<_EditValueDialog> {
 }
 
 class _ImportDialog extends StatefulWidget {
-  const _ImportDialog(this.fileName, this.text);
-  final String fileName;
+  const _ImportDialog(this.source, this.text);
+
+  /// The file name, or where else the text came from.
+  final String source;
   final String text;
 
   @override
@@ -526,6 +586,7 @@ class _ImportDialog extends StatefulWidget {
 
 class _ImportDialogState extends State<_ImportDialog> {
   late final _text = TextEditingController(text: widget.text);
+  var _encoded = false;
 
   @override
   void dispose() {
@@ -535,23 +596,33 @@ class _ImportDialogState extends State<_ImportDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final vars = parseEnvFile(_text.text);
+    final parsed = parseEnvFile(_text.text);
+    final (:vars, :bad) = _encoded ? decodeEnvValues(parsed) : (vars: parsed, bad: const <String>[]);
+    final ready = vars.isNotEmpty && bad.isEmpty;
     void close(bool replace) => Navigator.of(context).pop<_Import>((vars: vars, replace: replace));
     return AppDialog(
       title: 'Import .env',
-      subtitle: widget.fileName,
+      subtitle: widget.source,
       width: 560,
       actions: [
         Btn('Cancel', size: BtnSize.md, onPressed: () => Navigator.of(context).pop()),
-        Btn('Replace all', size: BtnSize.md, onPressed: vars.isEmpty ? null : () => close(true)),
-        Btn('Merge', size: BtnSize.md, variant: BtnVariant.primary, onPressed: vars.isEmpty ? null : () => close(false)),
+        Btn('Replace all', size: BtnSize.md, onPressed: ready ? () => close(true) : null),
+        Btn('Merge', size: BtnSize.md, variant: BtnVariant.primary, onPressed: ready ? () => close(false) : null),
       ],
       children: [
-        AppInput(controller: _text, maxLines: 14, minLines: 8, onChanged: (_) => setState(() {})),
+        AppInput(controller: _text, maxLines: 14, minLines: 8, hint: 'KEY=value, one per line', onChanged: (_) => setState(() {})),
+        SwitchRow(
+          title: 'Values are base64-encoded',
+          desc: 'Each value is decoded before it is staged, as dokku config:set --encoded takes it.',
+          value: _encoded,
+          onChanged: (v) => setState(() => _encoded = v),
+        ),
         Text(
-          '${_count(vars.length)} found. Merge adds and updates them. Replace all also removes every variable '
-          'that is not in the file. Nothing is sent until you save changes.',
-          style: T.hint,
+          bad.isNotEmpty
+              ? '${bad.length == 1 ? '1 value' : '${bad.length} values'} could not be decoded as base64 text: ${bad.join(', ')}.'
+              : '${_count(vars.length)} found. Merge adds and updates them. Replace all also removes every variable '
+                  'that is not listed above. Nothing is sent until you save changes.',
+          style: bad.isNotEmpty ? T.sans(11.5, color: Tone.bad.color) : T.hint,
         ),
       ],
     );

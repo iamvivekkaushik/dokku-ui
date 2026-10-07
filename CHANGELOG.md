@@ -5,6 +5,21 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
+## Unreleased
+
+### Added
+
+- The Environment tab imports from the clipboard as well as from a file:
+  Paste opens the same dialog with the clipboard's text, or empty to paste
+  into. The dialog can take values that are base64-encoded, decoding them
+  the way `dokku config:set --encoded` does, and names any value that is
+  not valid base64 before anything is staged.
+- A Refresh button on the Environment tab reads the variables again, for
+  ones set outside the app, such as from the Dokku CLI or by linking a
+  datastore. Staged changes stay staged; a value the server now has stops
+  counting as a change, and a failed read says so instead of showing the
+  old list as if it were new.
+
 ## 1.6.0 - 2026-10-02
 
 ### Added
