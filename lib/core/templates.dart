@@ -118,14 +118,16 @@ class AppTemplate {
   final String image;
   final List<String> tags;
 
-  /// The port the container listens on, mapped to http:80. Null for an app
-  /// that is not reached over HTTP.
+  /// The port the container listens on, mapped to http:80. Without the proxy
+  /// it is instead the app's only port mapping, which Dokku hands the
+  /// container as PORT (overriding any PORT in the config). Null for an app
+  /// that is neither reached over HTTP nor reads PORT.
   final int? port;
 
   /// Ports published on the host directly, as docker `-p` values such as
   /// `21116:21116/udp`, for protocols the proxy cannot carry. Two containers
-  /// cannot hold the same port, so such an app is stopped before it is
-  /// deployed again.
+  /// cannot hold the same port, so zero-downtime checks are disabled for such
+  /// an app: Dokku then stops the old container before starting the new one.
   final List<String> publish;
 
   /// Whether the app sits behind Dokku's proxy. Off for an app that speaks
@@ -348,6 +350,10 @@ const templates = [
         'are published on the host directly and the proxy is left out. Keys and the database live on the mounted directory.',
     homepage: 'https://rustdesk.com/docs/en/self-host/rustdesk-server-oss/',
     image: 'rustdesk/rustdesk-server-s6',
+    // The image derives every port from PORT: hbbs on it, hbbr one above.
+    // Left to Dokku, PORT is the first exposed port, 21115, which shifts
+    // every service one below where the clients look.
+    port: 21116,
     proxy: false,
     initProcess: false,
     publish: ['21115:21115', '21116:21116', '21116:21116/udp', '21117:21117', '21118:21118', '21119:21119'],
@@ -360,8 +366,8 @@ const templates = [
       TemplateSetting(['ALWAYS_USE_RELAY'], 'Always use the relay', value: 'N', choices: ['N', 'Y'], hint: 'Y sends every session through the relay instead of trying a direct connection.'),
     ],
     notes: 'In the RustDesk clients, set the ID server to {domain} and the key to the contents of {data}/id_ed25519.pub on '
-        'the host, which the SSH terminal can print. Firewalls must let 21115 to 21119 through. To update it later, stop the '
-        'app first: two containers cannot share the published ports.',
+        'the host, which the SSH terminal can print. Firewalls must let 21115 to 21119 through, '
+        'and UDP 21116.',
   ),
   AppTemplate(
     id: 'node-red',
@@ -432,7 +438,7 @@ const templates = [
       'GITEA__server__START_SSH_SERVER': 'true',
     },
     notes: 'Open {url} to finish the setup and create the administrator. Clone over SSH with ssh://git@{domain}:2222/<owner>/<repo>.git; '
-        'the firewall must let 2222 through. To update it later, stop the app first: two containers cannot share the published port.',
+        'the firewall must let 2222 through.',
   ),
   AppTemplate(
     id: 'keycloak',
@@ -1181,8 +1187,9 @@ InstallPlan planInstall(AppTemplate t, InstallChoices c, {required String defaul
         RunStep(['storage:mount', app, '$storageRoot/$app-${m.name}:${m.path}']),
       ],
     if (env.isNotEmpty) RunStep(configSetArgs(app, env)),
-    if (t.port != null) RunStep(['ports:set', app, 'http:80:${t.port}']),
+    if (t.port != null) RunStep(['ports:set', app, t.proxy ? 'http:80:${t.port}' : 'https:${t.port}:${t.port}']),
     for (final p in t.publish) RunStep(['docker-options:add', app, 'deploy', '-p $p']),
+    if (t.publish.isNotEmpty) RunStep(['checks:disable', app, 'web']),
     if (!t.proxy) RunStep(['proxy:disable', app]),
     if (!t.initProcess) RunStep(['scheduler-docker-local:set', app, 'init-process', 'false']),
     if (custom.isNotEmpty) RunStep(['domains:set', app, domain]),

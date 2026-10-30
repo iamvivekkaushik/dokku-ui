@@ -25,7 +25,7 @@ void main() {
         if (t.port != null) expect(t.port, greaterThan(0), reason: t.id);
         expect(t.glyph.length, 2, reason: t.id);
         expect(t.homepage, startsWith('https://'), reason: t.id);
-        expect(t.notes, contains(t.port == null ? '{domain}' : '{url}'), reason: '${t.id} tells the user where to go');
+        expect(t.notes, contains(t.proxy ? '{url}' : '{domain}'), reason: '${t.id} tells the user where to go');
         expect(t.port != null || t.publish.isNotEmpty, isTrue, reason: '${t.id} is reachable somehow');
         for (final p in t.publish) {
           expect(p, matches(RegExp(r'^\d+:\d+(/udp)?$')), reason: '${t.id}: $p');
@@ -287,16 +287,18 @@ void main() {
         'storage:ensure-directory --chown false rustdesk-data',
         'storage:mount rustdesk /var/lib/dokku/data/storage/rustdesk-data:/data',
         'config:set',
+        'ports:set rustdesk https:21116:21116',
         'docker-options:add rustdesk deploy -p 21115:21115',
         'docker-options:add rustdesk deploy -p 21116:21116',
         'docker-options:add rustdesk deploy -p 21116:21116/udp',
         'docker-options:add rustdesk deploy -p 21117:21117',
         'docker-options:add rustdesk deploy -p 21118:21118',
         'docker-options:add rustdesk deploy -p 21119:21119',
+        'checks:disable rustdesk web',
         'proxy:disable rustdesk',
         'scheduler-docker-local:set rustdesk init-process false',
         'git:from-image rustdesk rustdesk/rustdesk-server-s6:latest',
-      ], reason: 'no ports:set and no certificate: nothing answers HTTP');
+      ], reason: 'no certificate: nothing answers HTTP; the one mapping only fixes PORT');
       expect(p.env, {'RELAY': 'rustdesk.dokku.test', 'ENCRYPTED_ONLY': '1', 'ALWAYS_USE_RELAY': 'N'});
       expect(p.notes, contains('/var/lib/dokku/data/storage/rustdesk-data/id_ed25519.pub'));
       expect(p.notes, contains('rustdesk.dokku.test'));
