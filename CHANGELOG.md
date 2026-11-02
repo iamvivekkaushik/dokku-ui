@@ -5,6 +5,17 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
+## Unreleased
+
+### Added
+
+- Agent access: on the desktop, Server › Agent access starts an MCP server
+  on this computer so Claude Code, Claude Desktop, Cursor and other agents
+  can list the saved hosts and run dokku commands through the app's SSH
+  connections. It listens on 127.0.0.1 only and needs a bearer token. Agents
+  may only read until Allow changes is on, and every change they make goes
+  in the activity log.
+
 ## 1.7.0 - 2026-10-08
 
 ### Added

@@ -12,6 +12,7 @@ import '../../core/install_script.dart' show publicKeyPattern;
 import '../../core/parse.dart';
 import '../../data/models.dart';
 import '../../data/platform.dart';
+import '../../state/mcp.dart';
 import '../../state/queries.dart';
 import '../../state/router.dart';
 import '../actions.dart';
@@ -112,6 +113,7 @@ class ServerScreen extends StatelessWidget {
         TwoCol(leftFlex: 7, rightFlex: 5, left: [_KeysCard(host)], right: [_SystemCard(host)]),
         TwoCol(leftFlex: 7, rightFlex: 5, left: [_InstallationCard(host)], right: [_GlobalCard(host)]),
         TwoCol(left: [_PluginsCard(host)], right: [_RegistryCard(host)]),
+        if (keyFilesSupported) const _AgentCard(),
       ]);
 }
 
@@ -987,5 +989,67 @@ class _UpgradeDialog extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// The MCP server that lets an agent on this computer run dokku commands.
+class _AgentCard extends ConsumerWidget {
+  const _AgentCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(mcpProvider);
+    final status = ref.watch(mcpStatusProvider);
+    final s = settings.value;
+    if (s == null) return Panel.column(children: [const PanelHead('Agent access'), const LoadingRows(rows: 2)]);
+    final notifier = ref.read(mcpProvider.notifier);
+    final header = 'Authorization: Bearer ${s.token}';
+    final claudeCode = 'claude mcp add --transport http dokku-console ${s.url} --header "$header"';
+    final json = const JsonEncoder.withIndent('  ').convert({
+      'mcpServers': {
+        'dokku-console': {
+          'type': 'http',
+          'url': s.url,
+          'headers': {'Authorization': 'Bearer ${s.token}'},
+        },
+      },
+    });
+
+    return Panel.column(children: [
+      PanelHead('Agent access', note: s.enabled ? (status.running ? 'MCP server running' : 'not running') : 'off'),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SwitchRow(
+            title: 'Let agents connect',
+            desc: 'Runs an MCP server on this computer, at ${s.url}, so Claude Code, Claude Desktop or Cursor '
+                'can run dokku commands on the saved hosts through this app. Only local programs holding the token can reach it.',
+            value: s.enabled,
+            onChanged: (v) => notifier.change((m) => m.copyWith(enabled: v)),
+          ),
+          const SizedBox(height: 12),
+          SwitchRow(
+            title: 'Allow changes',
+            desc: 'Off: agents can only run commands that read, such as apps:list or config:show. '
+                'Changes they make are written to the activity log.',
+            value: s.allowWrites,
+            onChanged: (v) => notifier.change((m) => m.copyWith(allowWrites: v)),
+          ),
+          if (status.error != null) ...[
+            const SizedBox(height: 12),
+            AlertBox(tone: Tone.bad, title: 'The server did not start.', text: status.error!),
+          ],
+        ]),
+      ),
+      if (s.enabled) ...[
+        _ActionRow(title: 'Claude Code', detail: claudeCode.replaceAll(s.token, '•••'), trailing: CopyBtn(claudeCode, label: 'Copy')),
+        _ActionRow(title: 'JSON config', detail: 'mcpServers entry for Claude Desktop, Cursor and others', trailing: CopyBtn(json, label: 'Copy')),
+        _ActionRow(
+          title: 'Token',
+          detail: 'A new one disconnects every agent set up with the old one.',
+          trailing: Btn('New token', onPressed: () => notifier.change((m) => m.copyWith(token: McpSettings.newToken()))),
+        ),
+      ],
+    ]);
   }
 }

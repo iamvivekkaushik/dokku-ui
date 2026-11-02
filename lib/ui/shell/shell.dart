@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/format.dart';
 import '../../core/version.dart';
 import '../../data/models.dart';
+import '../../data/platform.dart';
 import '../../state/core.dart';
 import '../../state/jobs.dart';
+import '../../state/mcp.dart';
 import '../../state/queries.dart';
 import '../../state/router.dart';
 import '../../state/updates.dart';
@@ -115,6 +117,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   Widget build(BuildContext context) {
     ref.watch(connectionMonitorProvider);
+    // Starts the agent server at launch when it was left on.
+    if (keyFilesSupported) ref.listen(mcpProvider, (_, _) {});
     ref.listen(failedJobProvider, (_, job) async {
       if (job == null || _errorOpen) return;
       _errorOpen = true;

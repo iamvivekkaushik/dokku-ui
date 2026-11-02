@@ -37,6 +37,9 @@
 - **Careful with what matters.** Host keys are pinned, secrets are masked in
   previews and logs, and destroying an app means typing its name after reading
   what will go.
+- **Agents welcome.** Turn on Agent access and the desktop app serves MCP on
+  `127.0.0.1`, so Claude Code, Claude Desktop or Cursor can run `dokku`
+  commands on your hosts. Read-only until you allow changes; token required.
 - **Keeps itself current.** The app notices a new release and shows what
   changed. On Linux it updates itself in place and restarts; on Android,
   macOS and Windows it downloads the build.
