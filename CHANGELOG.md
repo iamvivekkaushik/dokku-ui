@@ -5,7 +5,7 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
-## Unreleased
+## 1.8.0 - 2026-11-16
 
 ### Added
 
@@ -28,6 +28,17 @@ not get released.
   on the web need Dokku's default nginx proxy, which runs on the host: a
   proxy in a container, such as Caddy or Traefik, may not reach the
   project's network, and the dialog says so.
+
+### Fixed
+
+- The RustDesk template ran every service one port below where the clients
+  look: Dokku sets PORT to the first port the image exposes, over the
+  config. It now maps 21116 as the app's only port, which Dokku hands the
+  container as PORT.
+- A template that publishes host ports, such as RustDesk or Gitea, no
+  longer has to be stopped before it is deployed again: a new install
+  disables zero-downtime checks, so Dokku stops the old container before
+  starting the new one.
 
 ## 1.7.0 - 2026-10-08
 

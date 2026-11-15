@@ -2,7 +2,7 @@
 library;
 
 /// Kept in step with pubspec.yaml; a test checks that.
-const appVersion = '1.7.0';
+const appVersion = '1.8.0';
 
 const repository = 'iamvivekkaushik/dokku-ui';
 const releasesUrl = 'https://github.com/$repository/releases';
