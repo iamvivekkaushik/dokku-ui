@@ -5,6 +5,30 @@ puts the section of the tagged version on the GitHub release, and the app
 shows it when it offers the update. A version without a section here does
 not get released.
 
+## Unreleased
+
+### Added
+
+- The Store deploys a Docker Compose file, pasted or opened. Each service
+  with an image becomes an app deployed from it, after the services it
+  depends on. The apps share a Docker network named after the project, on
+  which each answers to its service name, so `postgres://db:5432` in the
+  file works as it does under Compose. For each service you choose whether
+  it goes on the web behind Dokku's proxy, on the host's ports as the file
+  publishes them, or stays internal; databases and caches stay internal by
+  default, and a bundled reverse proxy such as Caddy is left out, since
+  Dokku's proxy does its job. Named volumes stay Docker volumes, with the
+  name Compose gives them, and a directory beside the file becomes a
+  storage directory. `${VARIABLES}` are filled in from fields, from a pasted
+  `.env`, or for passwords with no default from a value generated on the
+  device that every service shares. The command, entrypoint, restart
+  policy, memory and CPU limits, user and the common docker flags carry
+  over; what does not, such as healthchecks, is named for each service.
+  Every command is shown before it runs, with passwords hidden. Services
+  on the web need Dokku's default nginx proxy, which runs on the host: a
+  proxy in a container, such as Caddy or Traefik, may not reach the
+  project's network, and the dialog says so.
+
 ## 1.7.0 - 2026-10-08
 
 ### Added

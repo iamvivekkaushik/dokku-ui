@@ -1088,16 +1088,20 @@ List<String> configSetArgs(String app, Map<String, String> env) => [
 
 /// One command of an install.
 sealed class PlanStep {
-  const PlanStep(this.args, {this.timeout = const Duration(minutes: 30), this.quiet = false});
+  const PlanStep(this.args, {this.timeout = const Duration(minutes: 30), this.quiet = false, this.unless});
   final List<String> args;
   final Duration timeout;
 
   /// A failure is left in the dock without stopping the install.
   final bool quiet;
+
+  /// A read-only command that, when it succeeds, makes this step unnecessary:
+  /// `network:exists` before `network:create`.
+  final List<String>? unless;
 }
 
 class RunStep extends PlanStep {
-  const RunStep(super.args, {super.timeout, super.quiet});
+  const RunStep(super.args, {super.timeout, super.quiet, super.unless});
 }
 
 /// A command on the host itself rather than a Dokku one: chown for a mount
@@ -1231,8 +1235,8 @@ String describePlan(InstallPlan p) {
   return lines.join('\n');
 }
 
-final _domain = RegExp(r'^[a-z0-9.-]+\.[a-z]{2,}$', caseSensitive: false);
-final _email = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+final domainPattern = RegExp(r'^[a-z0-9.-]+\.[a-z]{2,}$', caseSensitive: false);
+final emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 final _memory = RegExp(r'^\d+[kmg]?$', caseSensitive: false);
 
 /// Whether a kept mount is handed to a uid with chown on the host, which
@@ -1255,7 +1259,7 @@ List<String> installProblems(AppTemplate t, InstallChoices c, {required Set<Stri
         if (c.services.contains(s.type) && c.urlOf(s.type).isNotEmpty && !looksLikeServiceUrl(c.urlOf(s.type)))
           'The ${s.type} URL needs a scheme and a host, like ${serviceUrlExample(s.type)}.',
       if (c.letsencrypt && !plugins.contains('letsencrypt')) 'The letsencrypt plugin is not installed.',
-      if (c.letsencrypt && !_email.hasMatch(c.email.trim())) "Let's Encrypt needs an email address.",
-      if (c.domain.trim().isNotEmpty && !_domain.hasMatch(c.domain.trim())) 'That does not look like a domain.',
+      if (c.letsencrypt && !emailPattern.hasMatch(c.email.trim())) "Let's Encrypt needs an email address.",
+      if (c.domain.trim().isNotEmpty && !domainPattern.hasMatch(c.domain.trim())) 'That does not look like a domain.',
       if (c.memory.trim().isNotEmpty && !_memory.hasMatch(c.memory.trim())) 'Memory is a number with k, m or g, such as 512m.',
     ];

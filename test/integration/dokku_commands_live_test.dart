@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dokku_console/core/command.dart';
+import 'package:dokku_console/core/compose.dart';
 import 'package:dokku_console/core/parse.dart';
 import 'package:dokku_console/core/tar.dart';
 import 'package:dokku_console/core/templates.dart';
@@ -119,8 +120,11 @@ void main() {
       ['--force', 'apps:destroy', 'e2e-store'],
       ['--force', 'apps:destroy', 'e2e-n8n'],
       ['--force', 'apps:destroy', 'e2e-rustdesk'],
+      ['--force', 'apps:destroy', 'e2e-compose-web'],
+      ['--force', 'apps:destroy', 'e2e-compose-api'],
       ['redis:destroy', 'e2e-cache', '--force'],
       ['network:destroy', '--force', 'e2e-net'],
+      ['network:destroy', '--force', 'e2e-compose'],
     ]) {
       await ssh.dokku(_host('dokku'), args, timeout: const Duration(minutes: 5));
     }
@@ -128,6 +132,7 @@ void main() {
     // Storage directories, also the ones a docker-in-docker host daemon made on its side.
     await ssh.exec(_host('root'), 'rm -rf /var/lib/dokku/data/storage/e2e-store-data /var/lib/dokku/data/storage/e2e-n8n-data /var/lib/dokku/data/storage/e2e-rustdesk-data');
     await ssh.exec(_host('root'), "docker run --rm -v /var/lib/dokku/data/storage:/s alpine:3.20 sh -c 'rm -rf /s/e2e-store-data /s/e2e-n8n-data /s/e2e-rustdesk-data'");
+    await ssh.exec(_host('root'), 'docker volume rm -f e2e-compose_html');
     ssh.dispose();
     await scratch.delete(recursive: true);
   });
@@ -511,6 +516,54 @@ void main() {
     expect(keys, contains('id_ed25519.pub'));
   }, skip: skip ?? (Platform.environment['DOKKU_TEST_STORE'] == null ? 'set DOKKU_TEST_STORE=1 to run the RustDesk server' : null),
       timeout: const Timeout(Duration(minutes: 10)));
+
+  test('deploys a compose file whose services reach each other by name', () async {
+    final source = ComposeSource.parse('''
+name: e2e-compose
+services:
+  web:
+    image: $_shellImage
+    ports: ["8080:80"]
+    depends_on: [api]
+    volumes: [html:/usr/share/nginx/html/data]
+    environment:
+      API_URL: http://api:8000
+      SECRET: \${E2E_SECRET}
+  api:
+    image: $_image
+    command: --port 8000 --name "two words"
+    restart: unless-stopped
+volumes:
+  html:
+''');
+    final c = defaultComposeChoices(source);
+    final plan = planCompose(source.resolve(c.effective), c, vhost: 'dokku.test');
+    expect(plan.apps.map((a) => a.app), ['e2e-compose-api', 'e2e-compose-web']);
+    final h = _host('dokku');
+    for (final step in plan.steps) {
+      if (step.unless != null && (await ssh.dokku(h, step.unless!)).ok) continue;
+      final r = await ssh.dokku(h, step.args, timeout: const Duration(minutes: 15));
+      expect(r.ok, isTrue, reason: '${displayCommand(step.args)} exited ${r.code}\n${stripAnsi(r.output)}');
+    }
+    Future<String> out(List<String> args) async => stripAnsi((await ssh.dokku(h, args)).stdout);
+    for (final app in ['e2e-compose-api', 'e2e-compose-web']) {
+      expect(await out(['ps:report', app]), contains(RegExp(r'Deployed:\s+true')), reason: app);
+      expect(await out(['network:report', app]), contains(RegExp(r'Network initial network:\s+e2e-compose')), reason: app);
+    }
+    expect((await out(['config:get', 'e2e-compose-web', 'SECRET'])).trim(), hasLength(64), reason: 'generated on the device');
+    expect(await out(['storage:list', 'e2e-compose-web']), contains('e2e-compose_html:/usr/share/nginx/html/data'));
+    // The proxy cannot be asked here: in a docker-in-docker test server, nginx
+    // runs in the Dokku container, which is not on the project's network.
+    var answer = '';
+    for (var i = 0; i < 10 && !answer.contains('Name: two words'); i++) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+      answer = await inApp('e2e-compose-web', 'wget -qO- http://api:8000');
+    }
+    expect(answer, contains('Name: two words'), reason: 'web reaches api by its service name, and the quoted argument arrives whole');
+    final policy = await ssh.exec(_host('root'), "docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' e2e-compose-api.web.1");
+    expect(policy.stdout.trim(), 'unless-stopped');
+    expect((await ssh.dokku(h, plan.steps.first.unless!)).ok, isTrue, reason: 'a second deploy joins the network instead of creating it');
+  }, skip: skip, timeout: const Timeout(Duration(minutes: 10)));
 
   test('runs a one-off command in the background', () async {
     await run([

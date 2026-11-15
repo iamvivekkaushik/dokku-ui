@@ -34,6 +34,11 @@
   A datastore is provisioned with its plugin, or taken from wherever one
   already runs, by URL. Every command is shown first; the result is an
   ordinary app.
+- **Compose files too.** Paste a `docker-compose.yml` and each service
+  becomes an app, on a network where the others reach it by its service
+  name. Choose what goes on the web, what stays internal and what is kept
+  between deploys; variables come from a pasted `.env`, and passwords are
+  generated on the device.
 - **Careful with what matters.** Host keys are pinned, secrets are masked in
   previews and logs, and destroying an app means typing its name after reading
   what will go.
@@ -163,7 +168,7 @@ only the path; the key stays in its file.
 | Area | Where | Dokku commands |
 | --- | --- | --- |
 | Apps | Apps, app Settings | `apps:create` `destroy` `list` `rename` `clone` `report` `lock` `unlock` |
-| Store | Store | Installs a template: `apps:create` `storage:ensure-directory` `storage:mount` `config:set` `ports:set` `domains:set` `resource:limit` `<service>:create` `<service>:link` `docker-options:add` `proxy:disable` `git:from-image` `letsencrypt:enable`, and `chown` on the host for an image that runs as a uid Dokku cannot chown to |
+| Store | Store | Installs a template: `apps:create` `storage:ensure-directory` `storage:mount` `config:set` `ports:set` `domains:set` `resource:limit` `<service>:create` `<service>:link` `docker-options:add` `proxy:disable` `git:from-image` `letsencrypt:enable`, and `chown` on the host for an image that runs as a uid Dokku cannot chown to. Deploys a compose file with the same commands and `network:exists` `network:create` `network:set` `checks:disable` `scheduler-docker-local:set` `ps:set` `ps:scale` |
 | Deploys | Deploy app, app Deploys | `git:sync` `git:from-image` `git:set` `git:unlock` `builds:list` `builds:output` `builds:cancel` `ps:rebuild` |
 | Builders | app Build | `builder:set` `builder:report` `builder-dockerfile:set` `buildpacks:add` `set` `remove` `clear` |
 | Processes | app Processes | `ps:scale` `start` `stop` `restart` `rebuild` `ps:set` `run` `run:detached` `enter` `cron:list` `cron:run` |
@@ -312,7 +317,7 @@ DOKKU_TEST_KEYS=/path/to/keys DOKKU_TEST_PORT=3022 flutter test test/integration
 ## Project layout
 
 ```
-lib/core/          Pure Dart: command quoting, parsers, install script, host scripts, the Store's templates
+lib/core/          Pure Dart: command quoting, parsers, install script, host scripts, the Store's templates, compose files
 lib/data/          SSH service, host and secret storage
 lib/state/         Riverpod providers: hosts, cached lookups, jobs, routing
 lib/ui/            Theme, widget kit, app shell, screens

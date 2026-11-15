@@ -281,7 +281,7 @@ void main() {
       expect(find.textContaining('Clients connect to this name.'), findsOneWidget);
       expect(_preview(tester), contains('docker-options:add rustdesk deploy \'-p 21116:21116/udp\''));
       expect(_preview(tester), contains('proxy:disable rustdesk'));
-      expect(_preview(tester), isNot(contains('ports:set')));
+      expect(_preview(tester), contains('ports:set rustdesk https:21116:21116'), reason: 'the one mapping only fixes PORT');
       await _press(tester, find.widgetWithText(Btn, 'Cancel'));
       await finish(tester);
     });

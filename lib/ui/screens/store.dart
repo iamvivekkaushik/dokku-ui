@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/compose.dart';
 import '../../core/parse.dart';
 import '../../core/templates.dart';
 import '../../data/models.dart';
@@ -14,6 +15,7 @@ import '../../state/queries.dart';
 import '../../state/router.dart';
 import '../actions.dart';
 import '../widgets/kit.dart';
+import 'compose.dart';
 
 const _needsRoot = 'Installing plugins needs root. Connect as root or as a user with sudo.';
 final _lowercase = [FilteringTextInputFormatter.allow(RegExp(r'[a-z0-9-]'))];
@@ -28,12 +30,24 @@ Future<void> _openLink(String url) async {
 
 /// Runs [plan] step by step as jobs and stops at the first failure. Takes
 /// what it needs from [ref] before the first await, so the screen may go.
-Future<ExecResult?> installTemplate(WidgetRef ref, Host host, InstallPlan plan) async {
+Future<ExecResult?> installTemplate(WidgetRef ref, Host host, InstallPlan plan) => runPlan(ref, host, 'Install ${plan.template.name}', plan.steps);
+
+/// Runs [steps] one by one as jobs titled [title] and stops at the first
+/// failure. A step whose probe succeeds is skipped. Takes what it needs from
+/// [ref] before the first await, so the screen may go.
+Future<ExecResult?> runPlan(WidgetRef ref, Host host, String title, List<PlanStep> steps) async {
   final run = DokkuRunner(ref, host);
   final ssh = ref.read(sshServiceProvider);
-  final title = 'Install ${plan.template.name}';
   ExecResult? last;
-  for (final step in plan.steps) {
+  for (final step in steps) {
+    if (step.unless case final probe?) {
+      try {
+        // Asked without a job: it only decides whether the step runs.
+        if ((await ssh.dokku(host, probe)).ok) continue;
+      } on Object {
+        // The step runs, and reports whatever is wrong itself.
+      }
+    }
     last = step is HostStep
         ? await run.shell(step.args, title: title, timeout: step.timeout, quiet: step.quiet)
         : await run(step.args, title: title, timeout: step.timeout, quiet: step.quiet);
@@ -43,10 +57,10 @@ Future<ExecResult?> installTemplate(WidgetRef ref, Host host, InstallPlan plan) 
     }
     if (step is LinkStep && step.service.env.isNotEmpty) {
       // Read without a job: the URL carries the password, and the dock shows output.
-      var got = await ssh.dokku(host, ['config:get', plan.app, step.service.from]);
-      if (!got.ok) got = await run(['config:get', plan.app, step.service.from], title: title);
+      var got = await ssh.dokku(host, ['config:get', step.app, step.service.from]);
+      if (!got.ok) got = await run(['config:get', step.app, step.service.from], title: title);
       if (!got.ok) return got;
-      last = await run(configSetArgs(plan.app, step.derive(got.stdout)), title: title);
+      last = await run(configSetArgs(step.app, step.derive(got.stdout)), title: title);
       if (!last.ok) return last;
     }
   }
@@ -87,6 +101,21 @@ class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
     if (navigator.mounted) unawaited(showAppDialog<void>(navigator.context, (_) => _DoneDialog(plan)));
   }
 
+  /// A compose file: each of its services becomes an app.
+  Future<void> _compose() async {
+    final host = widget.host;
+    final input = await showAppDialog<ComposeInput>(context, (_) => const ComposeSourceDialog());
+    if (input == null || !mounted) return;
+    final plan = await showAppDialog<ComposePlan>(context, (_) => ComposeDialog(host: host, input: input));
+    if (plan == null || !mounted) return;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final router = ref.read(routerProvider.notifier);
+    final r = await busy('compose', () => runPlan(ref, host, 'Deploy ${plan.project}', plan.steps));
+    if (r?.ok != true) return;
+    router.go(const AppsRoute());
+    if (navigator.mounted) unawaited(showAppDialog<void>(navigator.context, (_) => ComposeDoneDialog(plan)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final host = widget.host;
@@ -106,9 +135,12 @@ class _StoreScreenState extends ConsumerState<StoreScreen> with Busy {
           width: compact ? 170 : 220,
           child: AppInput(controller: _filter, large: true, mono: false, hint: 'Filter templates', onChanged: (_) => setState(() {})),
         ),
+        Btn('Compose file',
+            key: const ValueKey('compose'), icon: LucideIcons.fileCode, size: BtnSize.md, loading: isBusy('compose'), onPressed: _compose),
       ]),
       Text(
         'Each template creates an app from its official image, with storage, config and datastores set up the Dokku way. '
+        'A compose file works the same way: each of its services becomes an app. '
         'Every command is shown before it runs, and afterwards the app is yours to change like any other.',
         style: T.small,
       ),
